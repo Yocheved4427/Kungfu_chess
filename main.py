@@ -3,7 +3,9 @@ import sys
 from src.config import VALID_PIECE_CHARS
 from src.board_parser import BoardParser
 from src.board_validator import BoardValidator, BoardValidationError
+from src.engine import GameEngine
 from src.io_handler import ChessIOHandler
+
 
 def main() -> None:
     parser = BoardParser()
@@ -13,8 +15,9 @@ def main() -> None:
         writer=sys.stdout,
         parser=parser,
         validator=validator,
+        engine_factory=GameEngine,
     )
-    
+
     try:
         handler.run()
     except BoardValidationError as e:

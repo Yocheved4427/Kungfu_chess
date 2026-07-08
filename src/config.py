@@ -12,7 +12,10 @@ from typing import FrozenSet
 # ---------------------------------------------------------------------------
 
 VALID_PIECE_CHARS: FrozenSet[str] = frozenset([
-    "wK", "wQ", "wR", "wB", "wN", "wP", 
-    "bK", "bQ", "bR", "bB", "bN", "bP",  
-    "."                                  
+    "wK", "wQ", "wR", "wB", "wN", "wP",
+    "bK", "bQ", "bR", "bB", "bN", "bP",
+    ".",
 ])
+
+# Pixel dimensions of a single board cell.
+CELL_SIZE: int = 100

@@ -1,0 +1,217 @@
+"""
+Unit tests for src/engine.py
+
+Scope: GameEngine in isolation from the I/O handler.
+A real TextBoard is used so we test board-engine integration at the unit level
+(no I/O, no parser, no validator).
+
+Board used in most tests (2×2):
+    row 0: "wK ."
+    row 1: ". bK"
+
+  col:  0    1
+row 0: wK   .
+row 1: .    bK
+
+Pixel mapping (CELL_SIZE = 100):
+  handle_click(0,   0)   → (row=0, col=0) → wK  (white king)
+  handle_click(100, 0)   → (row=0, col=1) → .   (empty)
+  handle_click(0,   100) → (row=1, col=0) → .   (empty)
+  handle_click(100, 100) → (row=1, col=1) → bK  (black king)
+"""
+
+import pytest
+
+from src.board import TextBoard
+from src.engine import GameEngine
+from src.models import Position
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+_MINI_ROWS = ["wK .", ". bK"]   # 2×2 board
+
+
+def _mini_engine() -> GameEngine:
+    return GameEngine(TextBoard(_MINI_ROWS))
+
+
+# ===========================================================================
+# Construction
+# ===========================================================================
+
+class TestGameEngineInit:
+    def test_clock_starts_at_zero(self):
+        assert _mini_engine().clock_ms == 0
+
+    def test_nothing_selected_initially(self):
+        assert _mini_engine().selection is None
+
+    def test_board_attribute_is_the_board(self):
+        board = TextBoard(_MINI_ROWS)
+        engine = GameEngine(board)
+        assert engine.board is board
+
+
+# ===========================================================================
+# wait()
+# ===========================================================================
+
+class TestGameEngineWait:
+    def test_wait_advances_clock(self):
+        engine = _mini_engine()
+        engine.wait(200)
+        assert engine.clock_ms == 200
+
+    def test_wait_accumulates(self):
+        engine = _mini_engine()
+        engine.wait(100)
+        engine.wait(300)
+        assert engine.clock_ms == 400
+
+    def test_wait_zero_does_not_change_clock(self):
+        engine = _mini_engine()
+        engine.wait(0)
+        assert engine.clock_ms == 0
+
+
+# ===========================================================================
+# handle_click() – out-of-bounds
+# ===========================================================================
+
+class TestGameEngineClickOutOfBounds:
+    def test_click_row_too_large_ignored(self):
+        engine = _mini_engine()
+        engine.handle_click(0, 200)   # row=2 on a 2-row board
+        assert engine.selection is None
+
+    def test_click_col_too_large_ignored(self):
+        engine = _mini_engine()
+        engine.handle_click(200, 0)   # col=2 on a 2-col board
+        assert engine.selection is None
+
+    def test_click_negative_x_ignored(self):
+        engine = _mini_engine()
+        engine.handle_click(-1, 0)
+        assert engine.selection is None
+
+    def test_click_negative_y_ignored(self):
+        engine = _mini_engine()
+        engine.handle_click(0, -1)
+        assert engine.selection is None
+
+
+# ===========================================================================
+# handle_click() – no selection yet
+# ===========================================================================
+
+class TestGameEngineClickNoSelection:
+    def test_click_empty_with_no_selection_ignored(self):
+        engine = _mini_engine()
+        engine.handle_click(100, 0)   # (row=0, col=1) → empty
+        assert engine.selection is None
+
+    def test_click_piece_selects_it(self):
+        engine = _mini_engine()
+        engine.handle_click(0, 0)     # (row=0, col=0) → wK
+        assert engine.selection == Position(0, 0)
+
+    def test_click_black_piece_selects_it(self):
+        engine = _mini_engine()
+        engine.handle_click(100, 100)  # (row=1, col=1) → bK
+        assert engine.selection == Position(1, 1)
+
+
+# ===========================================================================
+# handle_click() – friendly piece replaces selection
+# ===========================================================================
+
+class TestGameEngineClickFriendly:
+    def test_click_friendly_replaces_selection(self):
+        board = TextBoard(["wK wR"])
+        engine = GameEngine(board)
+        engine.handle_click(0, 0)    # select wK at col=0
+        engine.handle_click(100, 0)  # click wR at col=1 (friendly)
+        assert engine.selection == Position(0, 1)
+
+    def test_click_friendly_does_not_move_piece(self):
+        board = TextBoard(["wK wR"])
+        engine = GameEngine(board)
+        engine.handle_click(0, 0)
+        engine.handle_click(100, 0)
+        # wK must still be in col=0
+        assert board.get_piece_at(Position(0, 0)) == "wK"
+
+    def test_click_friendly_selection_is_new_piece(self):
+        board = TextBoard(["wK wR"])
+        engine = GameEngine(board)
+        engine.handle_click(0, 0)
+        engine.handle_click(100, 0)
+        assert engine.selection == Position(0, 1)
+
+
+# ===========================================================================
+# handle_click() – move committed (empty or enemy target)
+# ===========================================================================
+
+class TestGameEngineClickCommitsMove:
+    def test_click_empty_with_selection_moves_piece(self):
+        engine = _mini_engine()
+        engine.handle_click(0, 0)     # select wK at (0,0)
+        engine.handle_click(100, 0)   # click empty at (0,1) → move
+        assert engine.board.get_piece_at(Position(0, 0)) == "."
+        assert engine.board.get_piece_at(Position(0, 1)) == "wK"
+
+    def test_click_enemy_with_selection_captures(self):
+        engine = _mini_engine()
+        engine.handle_click(0, 0)       # select wK at (0,0)
+        engine.handle_click(100, 100)   # click bK at (1,1) → capture
+        assert engine.board.get_piece_at(Position(0, 0)) == "."
+        assert engine.board.get_piece_at(Position(1, 1)) == "wK"
+
+    def test_move_clears_selection(self):
+        engine = _mini_engine()
+        engine.handle_click(0, 0)
+        engine.handle_click(100, 0)
+        assert engine.selection is None
+
+    def test_source_square_is_empty_after_move(self):
+        engine = _mini_engine()
+        engine.handle_click(0, 0)    # select wK
+        engine.handle_click(0, 100)  # move to (1,0)
+        assert engine.board.get_piece_at(Position(0, 0)) == "."
+
+    def test_destination_has_piece_after_move(self):
+        engine = _mini_engine()
+        engine.handle_click(0, 0)
+        engine.handle_click(0, 100)  # → (row=1, col=0)
+        assert engine.board.get_piece_at(Position(1, 0)) == "wK"
+
+
+# ===========================================================================
+# _is_friendly()
+# ===========================================================================
+
+class TestIsFriendly:
+    def setup_method(self):
+        self.engine = _mini_engine()
+
+    def test_same_color_white(self):
+        assert self.engine._is_friendly("wK", "wR") is True
+
+    def test_same_color_black(self):
+        assert self.engine._is_friendly("bK", "bQ") is True
+
+    def test_different_colors(self):
+        assert self.engine._is_friendly("wK", "bK") is False
+
+    def test_first_none_returns_false(self):
+        assert self.engine._is_friendly(None, "wK") is False
+
+    def test_second_none_returns_false(self):
+        assert self.engine._is_friendly("wK", None) is False
+
+    def test_both_none_returns_false(self):
+        assert self.engine._is_friendly(None, None) is False
