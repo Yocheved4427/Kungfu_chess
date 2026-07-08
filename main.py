@@ -1,9 +1,10 @@
 import sys
 
-from src.core.config import CELL_SIZE, VALID_PIECE_CHARS
-from src.engine.board import BoardParser, BoardValidator, BoardValidationError
-from src.engine.game import GameEngine
-from src.ui.io_handler import ChessIOHandler
+from core.config import CELL_SIZE, VALID_PIECE_CHARS
+from engine.board_parser import BoardParser
+from engine.board_validator import BoardValidator, BoardValidationError
+from engine.game import GameEngine
+from ui.io_handler import ChessIOHandler
 
 
 def main() -> None:

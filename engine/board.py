@@ -1,21 +1,18 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import FrozenSet, List
+from typing import List
 
 from core.models import Color, Position
 
 # ---------------------------------------------------------------------------
-# Kung Fu Chess – Board representation, parsing, and validation
+# Kung Fu Chess – Board representation
 # ---------------------------------------------------------------------------
-# Three distinct responsibilities, each in its own class:
+# AbstractBoard / TextBoard  – board storage and mutation.
 #
-#   AbstractBoard / TextBoard  – board storage and mutation.
-#   BoardParser                – raw text lines → AbstractBoard.
-#   BoardValidator             – structural integrity checks on parsed rows.
-#
-# All consumers depend on AbstractBoard only (Dependency Inversion), so the
-# concrete storage format can be swapped without touching any other layer.
+# BoardParser lives in engine.board_parser.
+# BoardValidator lives in engine.board_validator.
+# All consumers depend on AbstractBoard only (Dependency Inversion).
 # ---------------------------------------------------------------------------
 
 
@@ -124,49 +121,3 @@ class TextBoard(AbstractBoard):
             self._rows[from_pos.row] = " ".join(from_tokens)
             self._rows[to_pos.row] = " ".join(to_tokens)
 
-
-# ===========================================================================
-# Board parsing
-# ===========================================================================
-
-class BoardParser:
-    """Converts raw text lines into an ``AbstractBoard`` instance.
-
-    Single responsibility: strip line endings and discard trailing blank lines.
-    """
-
-    def parse(self, lines: List[str]) -> AbstractBoard:
-        rows: List[str] = [line.rstrip("\r\n") for line in lines]
-        while rows and rows[-1] == "":
-            rows.pop()
-        return TextBoard(rows)
-
-
-# ===========================================================================
-# Board validation
-# ===========================================================================
-
-class BoardValidationError(ValueError):
-    """Raised when a board fails structural or token validation."""
-
-
-class BoardValidator:
-    """Asserts that board rows contain only known tokens and uniform width.
-
-    Injected with ``valid_chars`` so this class stays rule-agnostic; all
-    magic values live in ``core.config``.
-    """
-
-    def __init__(self, valid_chars: FrozenSet[str]) -> None:
-        self._valid_chars = valid_chars
-
-    def validate(self, rows: List[str]) -> None:
-        if not rows:
-            raise BoardValidationError("EMPTY_BOARD")
-        expected_width = len(rows[0].split())
-        for row in rows:
-            for token in row.split():
-                if token not in self._valid_chars:
-                    raise BoardValidationError("UNKNOWN_TOKEN")
-            if len(row.split()) != expected_width:
-                raise BoardValidationError("ROW_WIDTH_MISMATCH")

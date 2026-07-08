@@ -33,3 +33,20 @@ class MoveRequest:
     """
     from_pos: Position
     to_pos: Position
+
+
+@dataclass(frozen=True)
+class PendingMove:
+    """A validated move that is queued and waiting to arrive.
+
+    ``piece``        – token at the origin cell at the moment the move was queued
+                       (e.g. ``"wR"``).  Stored so the engine can double-check
+                       the piece is still there when the move resolves.
+    ``from_pos``     – origin cell.
+    ``to_pos``       – destination cell.
+    ``arrival_time`` – game-clock value (ms) at which the move executes.
+    """
+    piece: str
+    from_pos: Position
+    to_pos: Position
+    arrival_time: int

@@ -26,6 +26,21 @@ class RenderEvent(GameEvent):
     board_text: str
 
 
+@dataclass(frozen=True)
+class TimeAdvancedEvent(GameEvent):
+    """Fired after the game clock advances (i.e. after every ``tick`` call)."""
+    current_time: int
+
+
+@dataclass(frozen=True)
+class MoveCompletedEvent(GameEvent):
+    """Fired once for each pending move that executes during a ``tick``."""
+    piece: str
+    from_pos: object   # Position – typed as object to avoid a cross-layer import
+    to_pos: object     # Position
+    arrival_time: int
+
+
 class Observer(ABC):
     """Observer interface.
 

@@ -19,3 +19,6 @@ VALID_PIECE_CHARS: FrozenSet[str] = frozenset([
 
 # Pixel dimensions of a single board cell.
 CELL_SIZE: int = 100
+
+# Duration (ms) per cell travelled for a pending move (Chebyshev distance).
+MOVE_DURATION: int = 1000

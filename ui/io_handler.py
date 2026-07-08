@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Callable, List, TextIO
 
-from engine.board import AbstractBoard, BoardParser, BoardValidator
+from engine.board import AbstractBoard
+from engine.board_parser import BoardParser
+from engine.board_validator import BoardValidator
 from engine.game import GameEngine
 from ui.events import GameEvent, Observer, RenderEvent
 
@@ -119,6 +121,6 @@ class ChessIOHandler(Observer):
             if parts[0] == "click" and len(parts) == 3:
                 engine.handle_click(int(parts[1]), int(parts[2]))
             elif parts[0] == "wait" and len(parts) == 2:
-                engine.wait(int(parts[1]))
+                engine.tick(int(parts[1]))
             elif parts[0] == "print" and len(parts) == 2 and parts[1] == "board":
                 engine.request_render()
