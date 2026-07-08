@@ -2,18 +2,8 @@ import sys
 
 from src.config import VALID_PIECE_CHARS
 from src.board_parser import BoardParser
-from src.board_validator import BoardValidator
+from src.board_validator import BoardValidator, BoardValidationError
 from src.io_handler import ChessIOHandler
-
-
-# ---------------------------------------------------------------------------
-# Kung Fu Chess – Entry point
-# ---------------------------------------------------------------------------
-# main() wires the dependency graph and hands control to ChessIOHandler.
-# sys.stdin / sys.stdout are only referenced here, keeping all business
-# logic free of global-state dependencies.
-# ---------------------------------------------------------------------------
-
 
 def main() -> None:
     parser = BoardParser()
@@ -24,8 +14,11 @@ def main() -> None:
         parser=parser,
         validator=validator,
     )
-    handler.run()
-
+    
+    try:
+        handler.run()
+    except BoardValidationError as e:
+        print(f"ERROR {e}")
 
 if __name__ == "__main__":
     main()

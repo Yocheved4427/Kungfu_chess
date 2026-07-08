@@ -11,4 +11,8 @@ from typing import FrozenSet
 #   '.'        → Empty square
 # ---------------------------------------------------------------------------
 
-VALID_PIECE_CHARS: FrozenSet[str] = frozenset("KQRBNPkqrbnp.")
+VALID_PIECE_CHARS: FrozenSet[str] = frozenset([
+    "wK", "wQ", "wR", "wB", "wN", "wP", 
+    "bK", "bQ", "bR", "bB", "bN", "bP",  
+    "."                                  
+])
