@@ -24,7 +24,9 @@ import pytest
 
 from src.board import TextBoard
 from src.engine import GameEngine
+from src.events import GameEvent, RenderEvent
 from src.models import Position
+from src.rules import MoveValidator
 
 
 # ---------------------------------------------------------------------------
@@ -215,3 +217,115 @@ class TestIsFriendly:
 
     def test_both_none_returns_false(self):
         assert self.engine._is_friendly(None, None) is False
+
+
+# ===========================================================================
+# Observer / Subject interface
+# ===========================================================================
+
+class _RecordingObserver:
+    def __init__(self) -> None:
+        self.events: list[GameEvent] = []
+
+    def on_event(self, event: GameEvent) -> None:
+        self.events.append(event)
+
+
+class TestGameEngineObserver:
+    def test_request_render_fires_render_event(self):
+        obs = _RecordingObserver()
+        engine = _mini_engine()
+        engine.add_observer(obs)
+        engine.request_render()
+        assert len(obs.events) == 1
+        assert isinstance(obs.events[0], RenderEvent)
+
+    def test_render_event_contains_board_text(self):
+        engine = _mini_engine()
+        obs = _RecordingObserver()
+        engine.add_observer(obs)
+        engine.request_render()
+        expected = engine.board.render()
+        assert obs.events[0].board_text == expected
+
+    def test_multiple_observers_all_notified(self):
+        engine = _mini_engine()
+        obs_a, obs_b = _RecordingObserver(), _RecordingObserver()
+        engine.add_observer(obs_a)
+        engine.add_observer(obs_b)
+        engine.request_render()
+        assert len(obs_a.events) == 1
+        assert len(obs_b.events) == 1
+
+    def test_request_render_twice_fires_two_events(self):
+        engine = _mini_engine()
+        obs = _RecordingObserver()
+        engine.add_observer(obs)
+        engine.request_render()
+        engine.request_render()
+        assert len(obs.events) == 2
+
+    def test_no_observers_request_render_does_not_crash(self):
+        engine = _mini_engine()
+        engine.request_render()  # should not raise
+
+
+# ===========================================================================
+# Move validation — invalid moves ignored
+# ===========================================================================
+
+class TestGameEngineInvalidMove:
+    def test_invalid_rook_diagonal_does_not_mutate_board(self):
+        board = TextBoard(["wR . .", ". . .", ". . ."])
+        engine = GameEngine(board)
+        engine.handle_click(0, 0)    # select wR
+        engine.handle_click(100, 100)  # diagonal move — invalid for Rook
+        assert board.get_piece_at(Position(0, 0)) == "wR"
+        assert board.get_piece_at(Position(1, 1)) == "."
+
+    def test_invalid_move_clears_selection(self):
+        board = TextBoard(["wR . .", ". . .", ". . ."])
+        engine = GameEngine(board)
+        engine.handle_click(0, 0)
+        engine.handle_click(100, 100)  # invalid diagonal
+        assert engine.selection is None
+
+    def test_pawn_move_not_implemented_ignores_move(self):
+        board = TextBoard(["wP .", ". ."])
+        engine = GameEngine(board)
+        engine.handle_click(0, 0)    # select wP
+        engine.handle_click(0, 100)  # try vertical move — Pawn not implemented
+        assert board.get_piece_at(Position(0, 0)) == "wP"
+        assert engine.selection is None
+
+    def test_blocked_rook_does_not_move(self):
+        # Rook at (0,0), blocker at (0,1), target at (0,2)
+        board = TextBoard(["wR bP ."])
+        engine = GameEngine(board)
+        engine.handle_click(0, 0)    # select wR
+        engine.handle_click(200, 0)  # target (0,2) — path blocked by bP
+        assert board.get_piece_at(Position(0, 0)) == "wR"
+        assert engine.selection is None
+
+
+# ===========================================================================
+# Custom validator (DI branch coverage)
+# ===========================================================================
+
+class TestGameEngineCustomValidator:
+    def test_custom_validator_is_used(self):
+        """A validator that approves everything lets even Pawns move."""
+
+        class _AlwaysValid(MoveValidator):
+            def is_valid(self, *args, **kwargs) -> bool:
+                return True
+
+        board = TextBoard(["wP .", ". ."])
+        engine = GameEngine(board, validator=_AlwaysValid())
+        engine.handle_click(0, 0)    # select wP
+        engine.handle_click(100, 0)  # normally invalid — but custom says True
+        assert board.get_piece_at(Position(0, 1)) == "wP"
+
+    def test_default_validator_created_when_none_passed(self):
+        engine = _mini_engine()
+        assert isinstance(engine._validator, MoveValidator)

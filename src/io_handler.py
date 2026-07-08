@@ -6,27 +6,26 @@ from src.board import AbstractBoard
 from src.board_parser import BoardParser
 from src.board_validator import BoardValidator
 from src.engine import GameEngine
-
+from src.events import GameEvent, Observer, RenderEvent
 
 # ---------------------------------------------------------------------------
-# Kung Fu Chess – I/O handler (Iteration 2)
+# Kung Fu Chess – I/O handler (Iteration 3)
 # ---------------------------------------------------------------------------
-# Single responsibility: translate raw text I/O into engine method calls.
-#
-# The handler owns three concerns:
-#   1. Split the input stream into a board section and a commands section.
-#   2. Parse + validate the board, then hand it to the injected engine factory.
-#   3. Dispatch each command line to the engine; write output only for
-#      ``print board``.
-#
-# All streams and collaborators are constructor-injected for testability.
+# Updated in Iteration 3:
+#   * Now implements the ``Observer`` interface.
+#   * Registers itself with the ``GameEngine`` on ``run()``.
+#   * ``print board`` calls ``engine.request_render()`` instead of reading
+#     ``engine.board.render()`` directly, keeping IO and render logic fully
+#     decoupled.
 # ---------------------------------------------------------------------------
 
 
-class ChessIOHandler:
-    """
-    Reads a structured text stream, constructs a ``GameEngine``, and executes
+class ChessIOHandler(Observer):
+    """Reads a structured text stream, constructs a ``GameEngine``, and executes
     each command by delegating to the engine.
+
+    Implements ``Observer`` to receive ``RenderEvent`` notifications from the
+    engine and write rendered board text to the output stream.
 
     Input format::
 
@@ -37,10 +36,6 @@ class ChessIOHandler:
         click 350 50
         wait 200
         print board
-
-    The ``engine_factory`` callable receives the parsed ``AbstractBoard`` and
-    returns a ready ``GameEngine``.  This keeps board creation and engine
-    creation decoupled and makes both trivially replaceable in tests.
     """
 
     def __init__(
@@ -58,6 +53,15 @@ class ChessIOHandler:
         self._engine_factory = engine_factory
 
     # ------------------------------------------------------------------
+    # Observer
+    # ------------------------------------------------------------------
+
+    def on_event(self, event: GameEvent) -> None:
+        """Write board text to the output stream on ``RenderEvent``."""
+        if isinstance(event, RenderEvent):
+            self._writer.write(event.board_text + "\n")
+
+    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
@@ -69,6 +73,7 @@ class ChessIOHandler:
         board = self._parser.parse(board_lines)
         self._validator.validate(board.get_rows())
         engine = self._engine_factory(board)
+        engine.add_observer(self)
         self._execute_commands(engine, command_lines)
 
     # ------------------------------------------------------------------
@@ -79,13 +84,7 @@ class ChessIOHandler:
     def _split_sections(
         raw_lines: List[str],
     ) -> tuple[List[str], List[str]]:
-        """
-        Partition *raw_lines* into board lines and command lines.
-
-        Lines between ``Board:`` and ``Commands:`` (exclusive) are board
-        lines with trailing CR/LF stripped.  Lines after ``Commands:`` are
-        command lines, stripped of leading/trailing whitespace.
-        """
+        """Partition *raw_lines* into board lines and command lines."""
         board_lines: List[str] = []
         command_lines: List[str] = []
         in_board = False
@@ -121,4 +120,4 @@ class ChessIOHandler:
             elif parts[0] == "wait" and len(parts) == 2:
                 engine.wait(int(parts[1]))
             elif parts[0] == "print" and len(parts) == 2 and parts[1] == "board":
-                self._writer.write(engine.board.render() + "\n")
+                engine.request_render()

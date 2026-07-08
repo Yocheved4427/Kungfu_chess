@@ -188,19 +188,16 @@ class TestPipelineClick:
         assert writer.getvalue() == _STANDARD_BOARD_OUTPUT
 
     def test_click_sequence_moves_piece_on_board(self):
-        """Two clicks: select wR at (0,0), move to empty (2,0). Board is mutated."""
+        """Two clicks on a clear board: select wR at (0,0), move one square down."""
         handler, writer = _make_handler(
-            _STANDARD_INPUT.replace(
-                "Commands:\n",
-                "Commands:\nclick 0 0\nclick 0 200\nprint board\n",
-            )
+            "Board:\nwR .\n. .\nCommands:\nclick 0 0\nclick 0 100\nprint board\n"
         )
         handler.run()
         output_rows = writer.getvalue().splitlines()
-        # wR should have left row 0, col 0
+        # wR should have left (row=0, col=0)
         assert output_rows[0].split()[0] == "."
-        # wR should now be at row 2, col 0
-        assert output_rows[2].split()[0] == "wR"
+        # wR should now be at (row=1, col=0)
+        assert output_rows[1].split()[0] == "wR"
 
     def test_out_of_bounds_click_is_silently_ignored(self):
         handler, writer = _make_handler(
