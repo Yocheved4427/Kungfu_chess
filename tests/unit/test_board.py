@@ -1,5 +1,5 @@
 """
-Unit tests for src/board.py
+Unit tests for engine/board.py
 
 Scope: TextBoard in complete isolation — no parser, validator, or I/O.
 Every public method and property is exercised, including defensive-copy
@@ -9,8 +9,8 @@ Board rows use the current token format (space-separated 2-char tokens):
   "wR wN wB wQ wK wB wN wR"
 """
 
-from src.board import AbstractBoard, TextBoard
-from src.models import Color, Position
+from engine.board import AbstractBoard, TextBoard
+from core.models import Color, Position
 
 
 _RANK_8 = "wR wN wB wQ wK wB wN wR"   # 8 tokens – standard back rank

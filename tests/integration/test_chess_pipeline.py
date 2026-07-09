@@ -1,5 +1,5 @@
 """
-Integration tests for the full Kung Fu Chess pipeline (Iterations 1 & 2).
+Integration tests for the full Kung Fu Chess pipeline.
 
 Input format
 ------------
@@ -13,6 +13,10 @@ Input format
     print board
 
 Output is produced only by ``print board`` commands.
+
+Moves are asynchronous: ``click`` only queues a PendingMove.  The board is
+mutated only once a ``wait`` command advances the clock past the move's
+arrival_time (Chebyshev distance * MOVE_DURATION, default 1000 ms/cell).
 
 Error codes
 -----------
@@ -31,12 +35,12 @@ import io
 
 import pytest
 
-from src.board_parser import BoardParser
-from src.board_validator import BoardValidationError, BoardValidator
-from src.config import VALID_PIECE_CHARS
-from src.engine import GameEngine
-from src.io_handler import ChessIOHandler
-from src.models import Position
+from core.config import MOVE_DURATION, VALID_PIECE_CHARS
+from core.models import Position
+from engine.board_parser import BoardParser
+from engine.board_validator import BoardValidationError, BoardValidator
+from engine.game import GameEngine
+from ui.io_handler import ChessIOHandler
 
 
 # ---------------------------------------------------------------------------
@@ -129,13 +133,13 @@ class TestPipelineWait:
 
         def factory(board):
             engine = GameEngine(board)
-            original_wait = engine.wait
+            original_tick = engine.tick
 
-            def recording_wait(ms):
+            def recording_tick(ms):
                 captured.append(ms)
-                original_wait(ms)
+                original_tick(ms)
 
-            engine.wait = recording_wait
+            engine.tick = recording_tick
             return engine
 
         handler, _ = _make_handler(
@@ -187,10 +191,23 @@ class TestPipelineClick:
         handler.run()
         assert writer.getvalue() == _STANDARD_BOARD_OUTPUT
 
-    def test_click_sequence_moves_piece_on_board(self):
-        """Two clicks on a clear board: select wR at (0,0), move one square down."""
+    def test_click_sequence_queues_move_without_mutating_board(self):
+        """Two clicks queue the move but don't mutate the board immediately —
+        moves resolve asynchronously via a later ``wait``."""
         handler, writer = _make_handler(
             "Board:\nwR .\n. .\nCommands:\nclick 0 0\nclick 0 100\nprint board\n"
+        )
+        handler.run()
+        output_rows = writer.getvalue().splitlines()
+        assert output_rows[0].split()[0] == "wR"
+        assert output_rows[1].split()[0] == "."
+
+    def test_click_sequence_then_wait_moves_piece_on_board(self):
+        """Select wR at (0,0), queue a one-square move down, then wait for it
+        to arrive before printing."""
+        handler, writer = _make_handler(
+            f"Board:\nwR .\n. .\nCommands:\nclick 0 0\nclick 0 100\n"
+            f"wait {MOVE_DURATION}\nprint board\n"
         )
         handler.run()
         output_rows = writer.getvalue().splitlines()

@@ -1,5 +1,5 @@
 """
-Unit tests for src/models.py
+Unit tests for core/models.py
 
 Scope: Color, Position, and MoveRequest in isolation.
 Verifies enum values, frozen-dataclass immutability, and equality semantics.
@@ -7,7 +7,7 @@ Verifies enum values, frozen-dataclass immutability, and equality semantics.
 
 import pytest
 
-from src.models import Color, MoveRequest, Position
+from core.models import Color, MoveRequest, Position
 
 
 class TestColor:

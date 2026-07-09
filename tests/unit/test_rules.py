@@ -1,13 +1,14 @@
 """
-Unit tests for src/rules.py  (Iteration 3 — OCP class hierarchy)
+Unit tests for engine/rules.py  (Strategy Pattern / OCP)
 
 Coverage plan
 -------------
   MovementRule subclasses   is_valid_shape + is_sliding for every concrete type
-  CompositeMove             union semantics; is_sliding propagation
-  OneStepMove               step restriction; is_sliding always False
+  PawnRule                  is_valid_shape (loose) + is_valid_with_context (full)
+  _CompositeRule             union semantics; is_sliding propagation
+  KingRule                  one-step restriction; is_sliding always False
   MoveValidator.register    OCP extension point
-  MoveValidator.is_valid    full dispatch: shape check → path check per piece type
+  MoveValidator.is_valid    full dispatch: context check → friendly-fire → path
   _path_clear (via is_valid) clear path, blocked mid, blocked last, adjacent
 """
 
@@ -15,16 +16,17 @@ from __future__ import annotations
 
 import pytest
 
-from src.board import TextBoard
-from src.models import Position
-from src.rules import (
-    CompositeMove,
-    DiagonalMove,
-    LShapeMove,
+from core.models import Position
+from engine.board import TextBoard
+from engine.rules import (
+    DiagonalRule,
+    KingRule,
+    KnightRule,
     MoveValidator,
     MovementRule,
-    OneStepMove,
-    OrthogonalMove,
+    OrthogonalRule,
+    PawnRule,
+    _CompositeRule,
 )
 
 
@@ -45,14 +47,22 @@ class TestMovementRuleABC:
         with pytest.raises(TypeError):
             MovementRule()  # type: ignore[abstract]
 
+    def test_default_context_check_delegates_to_shape(self):
+        """A rule that doesn't override is_valid_with_context falls back to
+        is_valid_shape, ignoring the destination content entirely."""
+        rule = OrthogonalRule()
+        assert rule.is_valid_with_context(
+            "wR", Position(0, 0), Position(0, 3), dest_piece="bP"
+        ) is True
+
 
 # ===========================================================================
-# OrthogonalMove
+# OrthogonalRule
 # ===========================================================================
 
-class TestOrthogonalMove:
+class TestOrthogonalRule:
     def setup_method(self):
-        self.rule = OrthogonalMove()
+        self.rule = OrthogonalRule()
 
     def test_is_sliding(self):
         assert self.rule.is_sliding is True
@@ -83,12 +93,12 @@ class TestOrthogonalMove:
 
 
 # ===========================================================================
-# DiagonalMove
+# DiagonalRule
 # ===========================================================================
 
-class TestDiagonalMove:
+class TestDiagonalRule:
     def setup_method(self):
-        self.rule = DiagonalMove()
+        self.rule = DiagonalRule()
 
     def test_is_sliding(self):
         assert self.rule.is_sliding is True
@@ -122,12 +132,12 @@ class TestDiagonalMove:
 
 
 # ===========================================================================
-# LShapeMove
+# KnightRule
 # ===========================================================================
 
-class TestLShapeMove:
+class TestKnightRule:
     def setup_method(self):
-        self.rule = LShapeMove()
+        self.rule = KnightRule()
 
     def test_is_not_sliding(self):
         assert self.rule.is_sliding is False
@@ -154,76 +164,157 @@ class TestLShapeMove:
 
 
 # ===========================================================================
-# CompositeMove
+# _CompositeRule  (internal helper — tested directly as a white-box unit
+# since it backs both Queen and King and its union semantics are non-trivial)
 # ===========================================================================
 
-class TestCompositeMove:
+class TestCompositeRule:
     def test_is_sliding_true_if_any_component_sliding(self):
-        c = CompositeMove(LShapeMove(), OrthogonalMove())
+        c = _CompositeRule(KnightRule(), OrthogonalRule())
         assert c.is_sliding is True
 
     def test_is_sliding_false_if_all_non_sliding(self):
-        c = CompositeMove(LShapeMove(), LShapeMove())
+        c = _CompositeRule(KnightRule(), KnightRule())
         assert c.is_sliding is False
 
     def test_accepts_move_valid_in_first_rule(self):
-        c = CompositeMove(OrthogonalMove(), DiagonalMove())
+        c = _CompositeRule(OrthogonalRule(), DiagonalRule())
         # Orthogonal move → valid via first rule
         assert c.is_valid_shape(Position(0, 0), Position(0, 3)) is True
 
     def test_accepts_move_valid_in_second_rule(self):
-        c = CompositeMove(OrthogonalMove(), DiagonalMove())
+        c = _CompositeRule(OrthogonalRule(), DiagonalRule())
         # Diagonal move → valid via second rule
         assert c.is_valid_shape(Position(0, 0), Position(2, 2)) is True
 
     def test_rejects_move_invalid_in_all_rules(self):
-        c = CompositeMove(OrthogonalMove(), DiagonalMove())
+        c = _CompositeRule(OrthogonalRule(), DiagonalRule())
         # L-shape → invalid in both rules
         assert c.is_valid_shape(Position(0, 0), Position(1, 2)) is False
 
     def test_single_rule_composite(self):
-        c = CompositeMove(LShapeMove())
+        c = _CompositeRule(KnightRule())
         assert c.is_valid_shape(Position(0, 0), Position(1, 2)) is True
 
 
 # ===========================================================================
-# OneStepMove
+# KingRule
 # ===========================================================================
 
-class TestOneStepMove:
+class TestKingRule:
     def setup_method(self):
-        # King = one-step in any Queen direction
-        self.king_rule = OneStepMove(CompositeMove(OrthogonalMove(), DiagonalMove()))
+        self.rule = KingRule()
 
-    def test_is_not_sliding_even_when_inner_is_sliding(self):
-        assert self.king_rule.is_sliding is False
+    def test_is_not_sliding(self):
+        assert self.rule.is_sliding is False
 
     def test_one_step_orthogonal_valid(self):
-        assert self.king_rule.is_valid_shape(Position(1, 1), Position(1, 2)) is True
+        assert self.rule.is_valid_shape(Position(1, 1), Position(1, 2)) is True
 
     def test_one_step_diagonal_valid(self):
-        assert self.king_rule.is_valid_shape(Position(1, 1), Position(2, 2)) is True
+        assert self.rule.is_valid_shape(Position(1, 1), Position(2, 2)) is True
 
     def test_all_eight_directions_valid(self):
         from_pos = Position(3, 3)
         for dr, dc in [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]:
-            assert self.king_rule.is_valid_shape(
+            assert self.rule.is_valid_shape(
                 from_pos, Position(3 + dr, 3 + dc)
             ) is True, f"King one-step ({dr},{dc}) should be valid"
 
     def test_two_steps_orthogonal_invalid(self):
-        assert self.king_rule.is_valid_shape(Position(0, 0), Position(0, 2)) is False
+        assert self.rule.is_valid_shape(Position(0, 0), Position(0, 2)) is False
 
     def test_two_steps_diagonal_invalid(self):
-        assert self.king_rule.is_valid_shape(Position(0, 0), Position(2, 2)) is False
+        assert self.rule.is_valid_shape(Position(0, 0), Position(2, 2)) is False
 
     def test_same_position_invalid(self):
-        assert self.king_rule.is_valid_shape(Position(1, 1), Position(1, 1)) is False
+        assert self.rule.is_valid_shape(Position(1, 1), Position(1, 1)) is False
 
-    def test_l_shape_invalid_even_if_inner_would_allow(self):
-        # inner = CompositeMove with LShapeMove; OneStep still limits distance
-        rule = OneStepMove(LShapeMove())
-        assert rule.is_valid_shape(Position(0, 0), Position(1, 2)) is False
+    def test_l_shape_invalid(self):
+        assert self.rule.is_valid_shape(Position(0, 0), Position(1, 2)) is False
+
+
+# ===========================================================================
+# PawnRule
+# ===========================================================================
+
+class TestPawnRuleShape:
+    """is_valid_shape is the loose, board-agnostic geometry check: one step
+    forward or diagonal, colour-blind."""
+
+    def setup_method(self):
+        self.rule = PawnRule()
+
+    def test_is_not_sliding(self):
+        assert self.rule.is_sliding is False
+
+    def test_one_step_forward_valid(self):
+        assert self.rule.is_valid_shape(Position(1, 1), Position(2, 1)) is True
+
+    def test_one_step_backward_also_valid_shape(self):
+        """Shape check is direction-agnostic; direction is enforced only in
+        is_valid_with_context."""
+        assert self.rule.is_valid_shape(Position(1, 1), Position(0, 1)) is True
+
+    def test_one_step_diagonal_valid(self):
+        assert self.rule.is_valid_shape(Position(1, 1), Position(2, 2)) is True
+
+    def test_two_steps_forward_invalid(self):
+        assert self.rule.is_valid_shape(Position(1, 1), Position(3, 1)) is False
+
+    def test_sideways_invalid(self):
+        assert self.rule.is_valid_shape(Position(1, 1), Position(1, 2)) is False
+
+    def test_same_position_invalid(self):
+        assert self.rule.is_valid_shape(Position(1, 1), Position(1, 1)) is False
+
+
+class TestPawnRuleContext:
+    """is_valid_with_context enforces colour direction and destination content."""
+
+    def setup_method(self):
+        self.rule = PawnRule()
+
+    def test_white_forward_onto_empty_valid(self):
+        assert self.rule.is_valid_with_context(
+            "wP", Position(6, 4), Position(5, 4), dest_piece="."
+        ) is True
+
+    def test_white_forward_onto_occupied_invalid(self):
+        assert self.rule.is_valid_with_context(
+            "wP", Position(6, 4), Position(5, 4), dest_piece="bP"
+        ) is False
+
+    def test_white_diagonal_capture_valid(self):
+        assert self.rule.is_valid_with_context(
+            "wP", Position(6, 4), Position(5, 5), dest_piece="bN"
+        ) is True
+
+    def test_white_diagonal_onto_empty_invalid(self):
+        assert self.rule.is_valid_with_context(
+            "wP", Position(6, 4), Position(5, 5), dest_piece="."
+        ) is False
+
+    def test_white_backward_invalid(self):
+        assert self.rule.is_valid_with_context(
+            "wP", Position(6, 4), Position(7, 4), dest_piece="."
+        ) is False
+
+    def test_black_forward_onto_empty_valid(self):
+        assert self.rule.is_valid_with_context(
+            "bP", Position(1, 4), Position(2, 4), dest_piece="."
+        ) is True
+
+    def test_black_forward_direction_is_reversed_from_white(self):
+        """Black moving in white's forward direction (decreasing row) is invalid."""
+        assert self.rule.is_valid_with_context(
+            "bP", Position(1, 4), Position(0, 4), dest_piece="."
+        ) is False
+
+    def test_black_diagonal_capture_valid(self):
+        assert self.rule.is_valid_with_context(
+            "bP", Position(1, 4), Position(2, 5), dest_piece="wN"
+        ) is True
 
 
 # ===========================================================================
@@ -234,12 +325,12 @@ class TestMoveValidatorRegister:
     def test_register_new_piece_type(self):
         """A custom 'X' piece that moves like a Knight is registerable."""
         v = MoveValidator()
-        v.register("X", LShapeMove())
+        v.register("X", KnightRule())
         b = _b(". . . . .", ". . . . .", ". . wX . .", ". . . . .", ". . . . .")
         assert v.is_valid("wX", Position(2, 2), Position(0, 1), b) is True
 
     def test_replace_existing_rule(self):
-        """Replacing Rook's rule with LShapeMove changes its behaviour."""
+        """Replacing Rook's rule with a KnightRule changes its behaviour."""
 
         class _AlwaysInvalid(MovementRule):
             @property
@@ -264,15 +355,33 @@ class TestMoveValidatorRegister:
                 return True
 
         v = MoveValidator()
+        v.register("Z", _AlwaysValid())
+        b = _b("wZ .")
+        assert v.is_valid("wZ", Position(0, 0), Position(0, 1), b) is True
+
+    def test_register_overrides_default_pawn_rule(self):
+        """Registering over an already-default-registered piece type (Pawn)
+        replaces its behaviour entirely."""
+
+        class _AlwaysValid(MovementRule):
+            @property
+            def is_sliding(self) -> bool:
+                return False
+
+            def is_valid_shape(self, *_) -> bool:
+                return True
+
+        v = MoveValidator()
         v.register("P", _AlwaysValid())
         b = _b("wP .")
+        # Sideways is illegal for a real pawn, but the override accepts anything.
         assert v.is_valid("wP", Position(0, 0), Position(0, 1), b) is True
 
     def test_default_registry_is_not_mutated_by_instance(self):
         """Two separate validators are independent."""
         v1 = MoveValidator()
         v2 = MoveValidator()
-        v1.register("R", LShapeMove())  # v1 Rook now behaves like Knight
+        v1.register("R", KnightRule())  # v1 Rook now behaves like Knight
         # v2 Rook must still be orthogonal
         b = _b("wR . . .")
         assert v2.is_valid("wR", Position(0, 0), Position(0, 3), b) is True
@@ -290,11 +399,6 @@ class TestMoveValidatorSamePosition:
 
 
 class TestMoveValidatorUnknownPiece:
-    def test_pawn_not_registered_returns_false(self):
-        v = MoveValidator()
-        b = _b("wP .")
-        assert v.is_valid("wP", Position(0, 0), Position(0, 1), b) is False
-
     def test_unknown_char_returns_false(self):
         v = MoveValidator()
         b = _b("wX .")
@@ -337,8 +441,9 @@ class TestMoveValidatorKnight:
         assert self.v.is_valid("wN", Position(2, 2), Position(2, 3), self.board) is False
 
     def test_knight_jumps_over_pieces(self):
-        # All intermediate squares filled, but Knight jumps
-        board = TextBoard(["wP wP wP wP", "wP wP wP wP", "wP wN wP wP", "wP wP wP ."])
+        # All intermediate squares filled, but Knight jumps. Destination is an
+        # enemy piece (not a friendly one) so the move is a legal capture.
+        board = TextBoard(["bP bP bP bP", "wP wP wP wP", "wP wN wP wP", "wP wP wP ."])
         # (2,1) → (0,2) is dr=-2, dc=1 — valid L-shape, jumps over filled squares
         assert self.v.is_valid("wN", Position(2, 1), Position(0, 2), board) is True
 
@@ -422,6 +527,58 @@ class TestMoveValidatorQueen:
         assert self.v.is_valid("wQ", Position(0, 0), Position(2, 2), b) is False
 
 
+class TestMoveValidatorPawn:
+    """White's forward direction is decreasing row (toward row 0); Black's
+    forward direction is increasing row — see PawnRule.is_valid_with_context."""
+
+    def setup_method(self):
+        self.v = MoveValidator()
+
+    def test_white_forward_onto_empty_valid(self):
+        b = _b(". .", "wP .")
+        assert self.v.is_valid("wP", Position(1, 0), Position(0, 0), b) is True
+
+    def test_white_forward_onto_occupied_invalid(self):
+        b = _b("bP .", "wP .")
+        assert self.v.is_valid("wP", Position(1, 0), Position(0, 0), b) is False
+
+    def test_white_diagonal_capture_forward_valid(self):
+        b = _b(". bN", "wP .")
+        assert self.v.is_valid("wP", Position(1, 0), Position(0, 1), b) is True
+
+    def test_white_diagonal_onto_empty_invalid(self):
+        b = _b(". .", "wP .")
+        assert self.v.is_valid("wP", Position(1, 0), Position(0, 1), b) is False
+
+    def test_white_diagonal_onto_own_piece_invalid(self):
+        b = _b(". wN", "wP .")
+        assert self.v.is_valid("wP", Position(1, 0), Position(0, 1), b) is False
+
+    def test_white_two_steps_invalid(self):
+        b = _b(". .", ". .", "wP .")
+        assert self.v.is_valid("wP", Position(2, 0), Position(0, 0), b) is False
+
+    def test_white_backward_invalid(self):
+        b = _b("wP .", ". .")
+        assert self.v.is_valid("wP", Position(0, 0), Position(1, 0), b) is False
+
+    def test_black_forward_onto_empty_valid(self):
+        b = _b("bP .", ". .")
+        assert self.v.is_valid("bP", Position(0, 0), Position(1, 0), b) is True
+
+    def test_black_forward_onto_occupied_invalid(self):
+        b = _b("bP .", "wP .")
+        assert self.v.is_valid("bP", Position(0, 0), Position(1, 0), b) is False
+
+    def test_black_diagonal_capture_forward_valid(self):
+        b = _b("bP .", ". wN")
+        assert self.v.is_valid("bP", Position(0, 0), Position(1, 1), b) is True
+
+    def test_black_backward_invalid(self):
+        b = _b(". .", "bP .")
+        assert self.v.is_valid("bP", Position(1, 0), Position(0, 0), b) is False
+
+
 # ===========================================================================
 # _path_clear (tested indirectly via MoveValidator.is_valid)
 # ===========================================================================
@@ -453,7 +610,3 @@ class TestPathClearViaValidator:
     def test_upward_move_blocked(self):
         b = _b(".", "bP", "wR")
         assert self.v.is_valid("wR", Position(2, 0), Position(0, 0), b) is False
-
-
-
-# ---------------------------------------------------------------------------

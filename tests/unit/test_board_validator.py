@@ -1,5 +1,5 @@
 """
-Unit tests for src/board_validator.py
+Unit tests for engine/board_validator.py
 
 Board format: each row is a space-separated list of tokens.
   Piece tokens : wK wQ wR wB wN wP  (white) / bK bQ bR bB bN bP  (black)
@@ -19,8 +19,8 @@ No parser, board, or I/O handler is involved.
 
 import pytest
 
-from src.board_validator import BoardValidationError, BoardValidator
-from src.config import VALID_PIECE_CHARS
+from engine.board_validator import BoardValidationError, BoardValidator
+from core.config import VALID_PIECE_CHARS
 
 
 # ---------------------------------------------------------------------------

@@ -1,11 +1,11 @@
 """
-Unit tests for src/config.py
+Unit tests for core/config.py
 
 Scope: verify VALID_PIECE_CHARS contains exactly the right 2-char token
 symbols and has the correct type.  No other module is imported.
 """
 
-from src.config import VALID_PIECE_CHARS
+from core.config import VALID_PIECE_CHARS
 
 
 class TestConfig:

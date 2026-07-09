@@ -79,12 +79,21 @@ class GameEngine:
         -------------
         * Out-of-bounds click → silently ignored.
         * No selection, empty square → silently ignored.
-        * No selection, piece → piece selected.
-        * Selection exists, friendly piece → selection replaced.
+        * No selection, piece not in transit → piece selected.
+        * No selection, piece in transit → silently ignored (cannot select
+          or redirect a piece that is already mid-movement).
+        * Selection exists, friendly piece not in transit → selection replaced.
+        * Selection exists, friendly piece in transit → silently ignored;
+          current selection is left unchanged.
         * Selection exists, empty / enemy cell:
             - Legal move  → ``PendingMove`` queued; piece stays at origin until
               ``tick`` executes the move at ``arrival_time``.  Selection cleared.
             - Illegal move → board unchanged (silent failure).  Selection cleared.
+
+        Note: ``self.selection`` can never itself refer to an in-transit
+        square — both selection paths above require ``not is_in_transit(pos)``
+        before assigning — so no separate guard is needed once a selection
+        is already held.
         """
         col = x // self._cell_size
         row = y // self._cell_size
@@ -96,19 +105,22 @@ class GameEngine:
         clicked_piece = self.board.get_piece_at(pos)
 
         if self.selection is None:
-            if clicked_piece != ".":
+            if clicked_piece != "." and not self.is_in_transit(pos):
                 self.selection = pos
             return
 
         selected_piece = self.board.get_piece_at(self.selection)
 
-        # Re-select a different friendly piece.
+        # Re-select a different friendly piece (skip if that piece is in transit).
         if clicked_piece != "." and self._is_friendly(selected_piece, clicked_piece):
-            self.selection = pos
+            if not self.is_in_transit(pos):
+                self.selection = pos
             return
 
         # Attempt move — selection always cleared after this point.
-        if self._validator.is_valid(selected_piece, self.selection, pos, self.board):
+        if self._validator.is_valid(
+            selected_piece, self.selection, pos, self.board
+        ) and not self._route_conflicts(selected_piece, self.selection, pos):
             cells_moved = max(
                 abs(self.selection.row - pos.row),
                 abs(self.selection.col - pos.col),
@@ -164,6 +176,10 @@ class GameEngine:
         """Current game-clock value in milliseconds (alias for current_time)."""
         return self.current_time
 
+    def is_in_transit(self, pos: Position) -> bool:
+        """Return True if *pos* is the origin of a move that has not yet arrived."""
+        return any(pm.from_pos == pos for pm in self._pending)
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
@@ -174,4 +190,49 @@ class GameEngine:
         if piece_a is None or piece_b is None:
             return False
         return piece_a[0] == piece_b[0]
+
+    @staticmethod
+    def _lane(from_pos: Position, to_pos: Position) -> tuple[str, int, int] | None:
+        """Return the (axis, lo, hi) lane a straight move travels through.
+
+        A horizontal move occupies every column between ``from_pos`` and
+        ``to_pos`` on its row; a vertical move occupies every row on its
+        column. Diagonal / knight moves don't travel a single-axis lane and
+        return ``None`` — they never participate in route locking.
+        """
+        if from_pos.row == to_pos.row and from_pos.col != to_pos.col:
+            lo, hi = sorted((from_pos.col, to_pos.col))
+            return ("col", lo, hi)
+        if from_pos.col == to_pos.col and from_pos.row != to_pos.row:
+            lo, hi = sorted((from_pos.row, to_pos.row))
+            return ("row", lo, hi)
+        return None
+
+    def _route_conflicts(
+        self, piece: str, from_pos: Position, to_pos: Position
+    ) -> bool:
+        """Return True if this move's lane overlaps an opposite-colour piece
+        already in transit along the same lane.
+
+        Pieces of opposite colour may not travel a common route (the same
+        span of columns on a horizontal move, or rows on a vertical move)
+        at the same time — the second mover is rejected. Same-colour moves
+        and non-lane moves (diagonal / knight) never conflict.
+        """
+        lane = self._lane(from_pos, to_pos)
+        if lane is None:
+            return False
+        axis, lo, hi = lane
+        for pm in self._pending:
+            if pm.piece[0] == piece[0]:
+                continue
+            other_lane = self._lane(pm.from_pos, pm.to_pos)
+            if other_lane is None:
+                continue
+            other_axis, other_lo, other_hi = other_lane
+            if other_axis != axis:
+                continue
+            if lo <= other_hi and other_lo <= hi:
+                return True
+        return False
 

@@ -1,9 +1,15 @@
 """
-Unit tests for src/engine.py
+Unit tests for engine/game.py
 
 Scope: GameEngine in isolation from the I/O handler.
 A real TextBoard is used so we test board-engine integration at the unit level
 (no I/O, no parser, no validator).
+
+Moves are asynchronous: handle_click() only queues a PendingMove; the board
+is mutated later by tick() once the clock reaches arrival_time. Transit-lock
+behaviour (selecting / redirecting an in-transit piece) is covered separately
+in test_transit_lock.py — this file focuses on construction, the clock,
+Observer notifications, and move validation/queuing.
 
 Board used in most tests (2×2):
     row 0: "wK ."
@@ -22,11 +28,17 @@ Pixel mapping (CELL_SIZE = 100):
 
 import pytest
 
-from src.board import TextBoard
-from src.engine import GameEngine
-from src.events import GameEvent, RenderEvent
-from src.models import Position
-from src.rules import MoveValidator
+from core.config import MOVE_DURATION
+from core.models import Position
+from engine.board import TextBoard
+from engine.game import GameEngine
+from engine.rules import MoveValidator
+from ui.events import (
+    GameEvent,
+    MoveCompletedEvent,
+    RenderEvent,
+    TimeAdvancedEvent,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +50,14 @@ _MINI_ROWS = ["wK .", ". bK"]   # 2×2 board
 
 def _mini_engine() -> GameEngine:
     return GameEngine(TextBoard(_MINI_ROWS))
+
+
+class _RecordingObserver:
+    def __init__(self) -> None:
+        self.events: list[GameEvent] = []
+
+    def on_event(self, event: GameEvent) -> None:
+        self.events.append(event)
 
 
 # ===========================================================================
@@ -56,27 +76,54 @@ class TestGameEngineInit:
         engine = GameEngine(board)
         assert engine.board is board
 
-
-# ===========================================================================
-# wait()
-# ===========================================================================
-
-class TestGameEngineWait:
-    def test_wait_advances_clock(self):
+    def test_default_validator_created_when_none_passed(self):
         engine = _mini_engine()
-        engine.wait(200)
+        assert isinstance(engine._validator, MoveValidator)
+
+    def test_no_pending_moves_initially(self):
+        assert _mini_engine()._pending == []
+
+    def test_default_move_duration_from_config(self):
+        engine = _mini_engine()
+        assert engine._move_duration == MOVE_DURATION
+
+
+# ===========================================================================
+# tick()
+# ===========================================================================
+
+class TestGameEngineTick:
+    def test_tick_advances_clock(self):
+        engine = _mini_engine()
+        engine.tick(200)
         assert engine.clock_ms == 200
 
-    def test_wait_accumulates(self):
+    def test_tick_accumulates(self):
         engine = _mini_engine()
-        engine.wait(100)
-        engine.wait(300)
+        engine.tick(100)
+        engine.tick(300)
         assert engine.clock_ms == 400
 
-    def test_wait_zero_does_not_change_clock(self):
+    def test_tick_zero_does_not_change_clock(self):
         engine = _mini_engine()
-        engine.wait(0)
+        engine.tick(0)
         assert engine.clock_ms == 0
+
+    def test_tick_fires_time_advanced_event(self):
+        engine = _mini_engine()
+        obs = _RecordingObserver()
+        engine.add_observer(obs)
+        engine.tick(50)
+        assert len(obs.events) == 1
+        assert isinstance(obs.events[0], TimeAdvancedEvent)
+        assert obs.events[0].current_time == 50
+
+    def test_tick_with_no_pending_moves_does_not_fire_move_completed(self):
+        engine = _mini_engine()
+        obs = _RecordingObserver()
+        engine.add_observer(obs)
+        engine.tick(50)
+        assert not any(isinstance(e, MoveCompletedEvent) for e in obs.events)
 
 
 # ===========================================================================
@@ -155,23 +202,26 @@ class TestGameEngineClickFriendly:
 
 
 # ===========================================================================
-# handle_click() – move committed (empty or enemy target)
+# handle_click() – move queued (empty or enemy target)
 # ===========================================================================
 
-class TestGameEngineClickCommitsMove:
-    def test_click_empty_with_selection_moves_piece(self):
+class TestGameEngineClickQueuesMove:
+    def test_click_empty_with_selection_queues_pending_move(self):
         engine = _mini_engine()
         engine.handle_click(0, 0)     # select wK at (0,0)
-        engine.handle_click(100, 0)   # click empty at (0,1) → move
-        assert engine.board.get_piece_at(Position(0, 0)) == "."
-        assert engine.board.get_piece_at(Position(0, 1)) == "wK"
+        engine.handle_click(100, 0)   # click empty at (0,1) → queue move
+        assert len(engine._pending) == 1
+        pm = engine._pending[0]
+        assert pm.piece == "wK"
+        assert pm.from_pos == Position(0, 0)
+        assert pm.to_pos == Position(0, 1)
 
-    def test_click_enemy_with_selection_captures(self):
+    def test_board_unchanged_until_move_arrives(self):
         engine = _mini_engine()
-        engine.handle_click(0, 0)       # select wK at (0,0)
-        engine.handle_click(100, 100)   # click bK at (1,1) → capture
-        assert engine.board.get_piece_at(Position(0, 0)) == "."
-        assert engine.board.get_piece_at(Position(1, 1)) == "wK"
+        engine.handle_click(0, 0)
+        engine.handle_click(100, 0)
+        assert engine.board.get_piece_at(Position(0, 0)) == "wK"
+        assert engine.board.get_piece_at(Position(0, 1)) == "."
 
     def test_move_clears_selection(self):
         engine = _mini_engine()
@@ -179,17 +229,59 @@ class TestGameEngineClickCommitsMove:
         engine.handle_click(100, 0)
         assert engine.selection is None
 
-    def test_source_square_is_empty_after_move(self):
+    def test_move_executes_on_arrival_tick(self):
         engine = _mini_engine()
-        engine.handle_click(0, 0)    # select wK
-        engine.handle_click(0, 100)  # move to (1,0)
+        engine.handle_click(0, 0)     # select wK
+        engine.handle_click(100, 0)   # queue move to (0,1), 1 cell away
+        engine.tick(engine._move_duration)
         assert engine.board.get_piece_at(Position(0, 0)) == "."
+        assert engine.board.get_piece_at(Position(0, 1)) == "wK"
 
-    def test_destination_has_piece_after_move(self):
+    def test_click_enemy_with_selection_captures_on_arrival(self):
+        engine = _mini_engine()
+        engine.handle_click(0, 0)       # select wK at (0,0)
+        engine.handle_click(100, 100)   # click bK at (1,1) → queue capture
+        engine.tick(engine._move_duration)  # 1 cell (Chebyshev) away
+        assert engine.board.get_piece_at(Position(0, 0)) == "."
+        assert engine.board.get_piece_at(Position(1, 1)) == "wK"
+
+    def test_arrival_time_scales_with_chebyshev_distance(self):
+        board = TextBoard(["wR . .", ". . .", ". . ."])
+        engine = GameEngine(board, move_duration=100)
+        engine.handle_click(0, 0)     # select wR
+        engine.handle_click(200, 0)   # move 2 cells right
+        assert engine._pending[0].arrival_time == 200
+
+    def test_pending_move_removed_after_execution(self):
         engine = _mini_engine()
         engine.handle_click(0, 0)
-        engine.handle_click(0, 100)  # → (row=1, col=0)
-        assert engine.board.get_piece_at(Position(1, 0)) == "wK"
+        engine.handle_click(100, 0)
+        engine.tick(engine._move_duration)
+        assert engine._pending == []
+
+    def test_move_completed_event_fired_on_arrival(self):
+        engine = _mini_engine()
+        obs = _RecordingObserver()
+        engine.add_observer(obs)
+        engine.handle_click(0, 0)
+        engine.handle_click(100, 0)
+        engine.tick(engine._move_duration)
+        completed = [e for e in obs.events if isinstance(e, MoveCompletedEvent)]
+        assert len(completed) == 1
+        assert completed[0].piece == "wK"
+        assert completed[0].from_pos == Position(0, 0)
+        assert completed[0].to_pos == Position(0, 1)
+        assert completed[0].arrival_time == engine._move_duration
+
+    def test_move_not_completed_before_arrival(self):
+        engine = _mini_engine()
+        obs = _RecordingObserver()
+        engine.add_observer(obs)
+        engine.handle_click(0, 0)
+        engine.handle_click(100, 0)
+        engine.tick(engine._move_duration - 1)
+        assert not any(isinstance(e, MoveCompletedEvent) for e in obs.events)
+        assert engine.board.get_piece_at(Position(0, 0)) == "wK"
 
 
 # ===========================================================================
@@ -222,14 +314,6 @@ class TestIsFriendly:
 # ===========================================================================
 # Observer / Subject interface
 # ===========================================================================
-
-class _RecordingObserver:
-    def __init__(self) -> None:
-        self.events: list[GameEvent] = []
-
-    def on_event(self, event: GameEvent) -> None:
-        self.events.append(event)
-
 
 class TestGameEngineObserver:
     def test_request_render_fires_render_event(self):
@@ -275,13 +359,13 @@ class TestGameEngineObserver:
 # ===========================================================================
 
 class TestGameEngineInvalidMove:
-    def test_invalid_rook_diagonal_does_not_mutate_board(self):
+    def test_invalid_rook_diagonal_does_not_queue_move(self):
         board = TextBoard(["wR . .", ". . .", ". . ."])
         engine = GameEngine(board)
         engine.handle_click(0, 0)    # select wR
         engine.handle_click(100, 100)  # diagonal move — invalid for Rook
         assert board.get_piece_at(Position(0, 0)) == "wR"
-        assert board.get_piece_at(Position(1, 1)) == "."
+        assert engine._pending == []
 
     def test_invalid_move_clears_selection(self):
         board = TextBoard(["wR . .", ". . .", ". . ."])
@@ -290,15 +374,30 @@ class TestGameEngineInvalidMove:
         engine.handle_click(100, 100)  # invalid diagonal
         assert engine.selection is None
 
-    def test_pawn_move_not_implemented_ignores_move(self):
-        board = TextBoard(["wP .", ". ."])
+    def test_pawn_sideways_move_ignored(self):
+        # Sideways is illegal shape for a Pawn even onto an enemy square.
+        board = TextBoard(["wP bP", ". ."])
         engine = GameEngine(board)
         engine.handle_click(0, 0)    # select wP
-        engine.handle_click(0, 100)  # try vertical move — Pawn not implemented
+        engine.handle_click(100, 0)  # sideways — illegal for Pawn
         assert board.get_piece_at(Position(0, 0)) == "wP"
         assert engine.selection is None
+        assert engine._pending == []
 
-    def test_blocked_rook_does_not_move(self):
+    def test_pawn_forward_move_is_queued(self):
+        """Pawns are fully implemented: a legal forward move IS queued.
+
+        White's forward direction is decreasing row, so the pawn starts on
+        the bottom row (row=1) and moves up to row=0.
+        """
+        board = TextBoard([". .", "wP ."])
+        engine = GameEngine(board)
+        engine.handle_click(0, 100)  # select wP at (1,0)
+        engine.handle_click(0, 0)    # forward move to (0,0)
+        assert len(engine._pending) == 1
+        assert engine._pending[0].to_pos == Position(0, 0)
+
+    def test_blocked_rook_does_not_queue_move(self):
         # Rook at (0,0), blocker at (0,1), target at (0,2)
         board = TextBoard(["wR bP ."])
         engine = GameEngine(board)
@@ -306,6 +405,7 @@ class TestGameEngineInvalidMove:
         engine.handle_click(200, 0)  # target (0,2) — path blocked by bP
         assert board.get_piece_at(Position(0, 0)) == "wR"
         assert engine.selection is None
+        assert engine._pending == []
 
 
 # ===========================================================================
@@ -314,18 +414,15 @@ class TestGameEngineInvalidMove:
 
 class TestGameEngineCustomValidator:
     def test_custom_validator_is_used(self):
-        """A validator that approves everything lets even Pawns move."""
+        """A validator that approves everything lets even sideways Pawns move."""
 
         class _AlwaysValid(MoveValidator):
             def is_valid(self, *args, **kwargs) -> bool:
                 return True
 
-        board = TextBoard(["wP .", ". ."])
+        board = TextBoard(["wP wP"])
         engine = GameEngine(board, validator=_AlwaysValid())
         engine.handle_click(0, 0)    # select wP
-        engine.handle_click(100, 0)  # normally invalid — but custom says True
+        engine.handle_click(100, 0)  # normally invalid sideways — but custom says True
+        engine.tick(engine._move_duration)
         assert board.get_piece_at(Position(0, 1)) == "wP"
-
-    def test_default_validator_created_when_none_passed(self):
-        engine = _mini_engine()
-        assert isinstance(engine._validator, MoveValidator)

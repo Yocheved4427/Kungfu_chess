@@ -1,5 +1,5 @@
 """
-Unit tests for src/events.py
+Unit tests for ui/events.py
 
 Covers: GameEvent, RenderEvent, Observer ABC.
 """
@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from dataclasses import FrozenInstanceError
 
-from src.events import GameEvent, Observer, RenderEvent
+from ui.events import GameEvent, Observer, RenderEvent
 
 
 # ---------------------------------------------------------------------------
