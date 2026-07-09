@@ -29,6 +29,7 @@ from ui.events import GameEvent, Observer, RenderEvent
 #   ...
 #   Commands:
 #   click 350 50
+#   jump 350 50
 #   wait 200
 #   print board
 # ---------------------------------------------------------------------------
@@ -120,6 +121,8 @@ class ChessIOHandler(Observer):
                 continue
             if parts[0] == "click" and len(parts) == 3:
                 engine.handle_click(int(parts[1]), int(parts[2]))
+            elif parts[0] == "jump" and len(parts) == 3:
+                engine.handle_jump(int(parts[1]), int(parts[2]))
             elif parts[0] == "wait" and len(parts) == 2:
                 engine.tick(int(parts[1]))
             elif parts[0] == "print" and len(parts) == 2 and parts[1] == "board":

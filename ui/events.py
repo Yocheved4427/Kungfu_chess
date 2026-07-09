@@ -41,6 +41,31 @@ class MoveCompletedEvent(GameEvent):
     arrival_time: int
 
 
+@dataclass(frozen=True)
+class GameOverEvent(GameEvent):
+    """Fired exactly once, the moment the game ends (see ``GameOverRule``)."""
+    winner: object      # Color | None – typed as object to avoid a cross-layer import
+
+
+@dataclass(frozen=True)
+class JumpLandedEvent(GameEvent):
+    """Fired when a jump's window elapses with no enemy arrival — the
+    piece grounds again, unchanged, on the same cell it jumped from."""
+    piece: str
+    pos: object        # Position – typed as object to avoid a cross-layer import
+    land_time: int
+
+
+@dataclass(frozen=True)
+class AirborneCaptureEvent(GameEvent):
+    """Fired when an airborne piece captures an enemy that arrived at its
+    cell during the jump window. The defender never moves; the attacker
+    is removed outright — it never reaches ``pos``."""
+    defender: str
+    pos: object        # Position – the airborne piece's cell
+    attacker: str
+
+
 class Observer(ABC):
     """Observer interface.
 

@@ -22,3 +22,6 @@ CELL_SIZE: int = 100
 
 # Duration (ms) per cell travelled for a pending move (Chebyshev distance).
 MOVE_DURATION: int = 1000
+
+# Duration (ms) a jump keeps its piece airborne, defending its own cell.
+JUMP_DURATION: int = 1000

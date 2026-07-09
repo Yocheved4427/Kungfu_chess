@@ -171,3 +171,27 @@ class TestTextBoard:
         assert board.get_rows()[0].split()[0] == "."
         assert board.get_rows()[1].split()[0] == "wR"
 
+    # --- set_piece_at --------------------------------------------------------
+
+    def test_set_piece_at_overwrites_the_token(self):
+        board = TextBoard(["wP ."])
+        board.set_piece_at(Position(0, 0), "wQ")
+        assert board.get_piece_at(Position(0, 0)) == "wQ"
+
+    def test_set_piece_at_does_not_touch_other_cells(self):
+        board = TextBoard(["wP bN ."])
+        board.set_piece_at(Position(0, 0), "wQ")
+        assert board.get_piece_at(Position(0, 1)) == "bN"
+        assert board.get_piece_at(Position(0, 2)) == "."
+
+    def test_set_piece_at_on_a_different_row(self):
+        board = TextBoard(["wP .", ". ."])
+        board.set_piece_at(Position(1, 1), "bQ")
+        assert board.get_piece_at(Position(1, 1)) == "bQ"
+        assert board.get_piece_at(Position(0, 0)) == "wP"
+
+    def test_set_piece_at_can_clear_a_cell(self):
+        board = TextBoard(["wP ."])
+        board.set_piece_at(Position(0, 0), ".")
+        assert board.get_piece_at(Position(0, 0)) == "."
+

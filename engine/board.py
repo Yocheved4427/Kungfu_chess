@@ -52,6 +52,14 @@ class AbstractBoard(ABC):
     def move_piece(self, from_pos: Position, to_pos: Position) -> None:
         """Move the piece at *from_pos* to *to_pos*, leaving *from_pos* empty."""
 
+    @abstractmethod
+    def set_piece_at(self, pos: Position, piece: str) -> None:
+        """Overwrite the token at *pos* with *piece* (e.g. for promotion).
+
+        Unlike ``move_piece`` this touches only a single cell — no origin
+        is emptied.
+        """
+
     def get_color_at(self, pos: Position) -> Color | None:
         """Return the Color at *pos*, or ``None`` for empty / out-of-bounds."""
         piece = self.get_piece_at(pos)
@@ -120,4 +128,9 @@ class TextBoard(AbstractBoard):
             to_tokens[to_pos.col] = piece
             self._rows[from_pos.row] = " ".join(from_tokens)
             self._rows[to_pos.row] = " ".join(to_tokens)
+
+    def set_piece_at(self, pos: Position, piece: str) -> None:
+        tokens = self._rows[pos.row].split()
+        tokens[pos.col] = piece
+        self._rows[pos.row] = " ".join(tokens)
 

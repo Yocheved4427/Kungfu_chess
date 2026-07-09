@@ -240,12 +240,16 @@ class TestKingRule:
 
 class TestPawnRuleShape:
     """is_valid_shape is the loose, board-agnostic geometry check: one step
-    forward or diagonal, colour-blind."""
+    forward/diagonal, or two straight, colour-blind. Direction, start-row,
+    and path are enforced elsewhere (is_valid_with_context / _with_board)."""
 
     def setup_method(self):
         self.rule = PawnRule()
 
     def test_is_not_sliding(self):
+        """Pawn is never *unconditionally* sliding — its one-step moves
+        can't be blocked mid-flight (there is no "mid"). Its two-step
+        advance is still blockable; see requires_path_check below."""
         assert self.rule.is_sliding is False
 
     def test_one_step_forward_valid(self):
@@ -259,14 +263,83 @@ class TestPawnRuleShape:
     def test_one_step_diagonal_valid(self):
         assert self.rule.is_valid_shape(Position(1, 1), Position(2, 2)) is True
 
-    def test_two_steps_forward_invalid(self):
-        assert self.rule.is_valid_shape(Position(1, 1), Position(3, 1)) is False
+    def test_two_steps_straight_valid(self):
+        """Geometrically valid; start-row/path are enforced elsewhere."""
+        assert self.rule.is_valid_shape(Position(1, 1), Position(3, 1)) is True
+
+    def test_two_steps_backward_also_valid_shape(self):
+        assert self.rule.is_valid_shape(Position(3, 1), Position(1, 1)) is True
+
+    def test_two_steps_diagonal_invalid(self):
+        assert self.rule.is_valid_shape(Position(1, 1), Position(3, 3)) is False
 
     def test_sideways_invalid(self):
         assert self.rule.is_valid_shape(Position(1, 1), Position(1, 2)) is False
 
     def test_same_position_invalid(self):
         assert self.rule.is_valid_shape(Position(1, 1), Position(1, 1)) is False
+
+
+class TestPawnRuleRequiresPathCheck:
+    """Only the two-step advance can be blocked mid-flight."""
+
+    def setup_method(self):
+        self.rule = PawnRule()
+
+    def test_one_step_forward_does_not_require_path_check(self):
+        assert self.rule.requires_path_check(Position(1, 1), Position(2, 1)) is False
+
+    def test_one_step_diagonal_does_not_require_path_check(self):
+        assert self.rule.requires_path_check(Position(1, 1), Position(2, 2)) is False
+
+    def test_two_steps_straight_requires_path_check(self):
+        assert self.rule.requires_path_check(Position(1, 1), Position(3, 1)) is True
+
+
+class TestPawnRuleValidWithBoard:
+    """is_valid_with_board enforces the two-step advance's start-row rule.
+
+    A colour's start row is the board edge it advances *away* from — on
+    an 8-row board, White's start row is 7 (num_rows - 1); Black's is 0.
+    """
+
+    def setup_method(self):
+        self.rule = PawnRule()
+        self.board = _b(
+            ". . . . . . . .",
+            ". . . . . . . .",
+            ". . . . . . . .",
+            ". . . . . . . .",
+            ". . . . . . . .",
+            ". . . . . . . .",
+            ". . . . . . . .",
+            ". . . . . . . .",
+        )
+
+    def test_white_two_step_from_start_row_is_allowed(self):
+        assert self.rule.is_valid_with_board(
+            "wP", Position(7, 4), Position(5, 4), self.board
+        ) is True
+
+    def test_white_two_step_off_start_row_is_rejected(self):
+        assert self.rule.is_valid_with_board(
+            "wP", Position(6, 4), Position(4, 4), self.board
+        ) is False
+
+    def test_black_two_step_from_start_row_is_allowed(self):
+        assert self.rule.is_valid_with_board(
+            "bP", Position(0, 4), Position(2, 4), self.board
+        ) is True
+
+    def test_black_two_step_off_start_row_is_rejected(self):
+        assert self.rule.is_valid_with_board(
+            "bP", Position(1, 4), Position(3, 4), self.board
+        ) is False
+
+    def test_one_step_move_is_unrestricted_regardless_of_row(self):
+        assert self.rule.is_valid_with_board(
+            "wP", Position(3, 4), Position(2, 4), self.board
+        ) is True
 
 
 class TestPawnRuleContext:
@@ -315,6 +388,34 @@ class TestPawnRuleContext:
         assert self.rule.is_valid_with_context(
             "bP", Position(1, 4), Position(2, 5), dest_piece="wN"
         ) is True
+
+    def test_white_two_step_onto_empty_valid(self):
+        assert self.rule.is_valid_with_context(
+            "wP", Position(6, 4), Position(4, 4), dest_piece="."
+        ) is True
+
+    def test_white_two_step_onto_occupied_invalid(self):
+        assert self.rule.is_valid_with_context(
+            "wP", Position(6, 4), Position(4, 4), dest_piece="bP"
+        ) is False
+
+    def test_white_two_step_backward_invalid(self):
+        assert self.rule.is_valid_with_context(
+            "wP", Position(6, 4), Position(8, 4), dest_piece="."
+        ) is False
+
+    def test_black_two_step_onto_empty_valid(self):
+        assert self.rule.is_valid_with_context(
+            "bP", Position(1, 4), Position(3, 4), dest_piece="."
+        ) is True
+
+    def test_two_step_diagonal_is_never_valid(self):
+        """d_col != 0 always takes the one-step-diagonal branch, which
+        requires d_row == direction exactly — a two-step diagonal is
+        rejected regardless of destination content."""
+        assert self.rule.is_valid_with_context(
+            "wP", Position(6, 4), Position(4, 6), dest_piece="bN"
+        ) is False
 
 
 # ===========================================================================
@@ -554,8 +655,11 @@ class TestMoveValidatorPawn:
         b = _b(". wN", "wP .")
         assert self.v.is_valid("wP", Position(1, 0), Position(0, 1), b) is False
 
-    def test_white_two_steps_invalid(self):
-        b = _b(". .", ". .", "wP .")
+    def test_white_two_steps_off_start_row_invalid(self):
+        """wP sits at row 2 of a 4-row board; White's start row (the edge
+        it advances away from) is num_rows - 1 = 3, so this pawn is NOT
+        on its start row."""
+        b = _b(". .", ". .", "wP .", ". .")
         assert self.v.is_valid("wP", Position(2, 0), Position(0, 0), b) is False
 
     def test_white_backward_invalid(self):
@@ -577,6 +681,42 @@ class TestMoveValidatorPawn:
     def test_black_backward_invalid(self):
         b = _b(". .", "bP .")
         assert self.v.is_valid("bP", Position(1, 0), Position(0, 0), b) is False
+
+
+class TestMoveValidatorPawnTwoStep:
+    """Full-stack coverage of the two-step advance: start row (the board
+    edge a colour advances away from — num_rows-1 for White, 0 for
+    Black), clear path, and empty destination."""
+
+    def setup_method(self):
+        self.v = MoveValidator()
+
+    def test_white_two_steps_from_start_row_with_clear_path_valid(self):
+        b = _b(". .", ". .", ". .", "wP .")  # 4 rows: start row = 4-1 = 3
+        assert self.v.is_valid("wP", Position(3, 0), Position(1, 0), b) is True
+
+    def test_white_two_steps_blocked_by_intermediate_piece_invalid(self):
+        b = _b(". .", ". .", "bN .", "wP .")
+        assert self.v.is_valid("wP", Position(3, 0), Position(1, 0), b) is False
+
+    def test_white_two_steps_onto_occupied_destination_invalid(self):
+        b = _b(". .", "bN .", ". .", "wP .")
+        assert self.v.is_valid("wP", Position(3, 0), Position(1, 0), b) is False
+
+    def test_black_two_steps_from_start_row_with_clear_path_valid(self):
+        b = _b("bP .", ". .", ". .", ". .")  # start row = 0
+        assert self.v.is_valid("bP", Position(0, 0), Position(2, 0), b) is True
+
+    def test_black_two_steps_blocked_by_intermediate_piece_invalid(self):
+        b = _b("bP .", "wN .", ". .", ". .")
+        assert self.v.is_valid("bP", Position(0, 0), Position(2, 0), b) is False
+
+    def test_two_steps_after_pawn_already_advanced_once_invalid(self):
+        """Once off its start row, a pawn can never two-step again —
+        exactly the real "en passant window" chess rule, minus en passant
+        itself (not requested)."""
+        b = _b(". .", ". .", "wP .", ". .")  # start row = 3; pawn sits at 2
+        assert self.v.is_valid("wP", Position(2, 0), Position(0, 0), b) is False
 
 
 # ===========================================================================

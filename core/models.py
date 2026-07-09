@@ -50,3 +50,32 @@ class PendingMove:
     from_pos: Position
     to_pos: Position
     arrival_time: int
+
+
+@dataclass(frozen=True)
+class PendingJump:
+    """A piece committed to an in-place jump, defending its own cell.
+
+    Unlike ``PendingMove``, a jump never relocates its piece — ``pos`` is
+    both origin and destination for the jump's whole duration.
+
+    ``piece``     – token at the cell when the jump started.
+    ``pos``       – the cell the piece jumps from and returns to.
+    ``land_time`` – game-clock value (ms) at which the piece grounds again,
+                    provided no enemy arrived at ``pos`` during the jump.
+    """
+    piece: str
+    pos: Position
+    land_time: int
+
+
+@dataclass(frozen=True)
+class GameResult:
+    """Outcome of a ``GameOverRule`` check against the current board.
+
+    ``is_over``  – True once the game has ended.
+    ``winner``   – the winning ``Color``, or ``None`` for a draw / ongoing
+                   game (``winner`` is only meaningful when ``is_over``).
+    """
+    is_over: bool
+    winner: Color | None = None

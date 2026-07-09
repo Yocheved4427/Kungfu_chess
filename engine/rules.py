@@ -63,6 +63,33 @@ class MovementRule(ABC):
         """
         return self.is_valid_shape(from_pos, to_pos)
 
+    def requires_path_check(self, from_pos: Position, to_pos: Position) -> bool:
+        """Return True iff every square strictly between *from_pos* and
+        *to_pos* must be empty for this exact move.
+
+        Default mirrors ``is_sliding`` — always for sliding pieces, never
+        otherwise. Override for a piece whose blocking behaviour depends
+        on the specific move rather than being fixed (e.g. Pawn: blockable
+        on its two-step advance, but not on its normal one-step moves).
+        """
+        return self.is_sliding
+
+    def is_valid_with_board(
+        self,
+        piece: str,
+        from_pos: Position,
+        to_pos: Position,
+        board: AbstractBoard,
+    ) -> bool:
+        """Optional third-tier check with full board access, for legality
+        that depends on more than shape + destination content — e.g. a
+        Pawn's double-step is only legal from its colour's start row,
+        which requires knowing the board's dimensions.
+
+        Default: no extra restriction (True).
+        """
+        return True
+
 
 # ===========================================================================
 # Concrete rules
@@ -154,12 +181,23 @@ class PawnRule(MovementRule):
       ``'w'`` (white) → direction = -1  (decreasing row = moving up)
       ``'b'`` (black) → direction = +1  (increasing row = moving down)
 
-    Two legal sub-moves (non-sliding, no double-step):
-      Forward move   ``d_row == direction, d_col == 0``
-                     → ONLY when destination is strictly empty (``"."``).
+    Three legal sub-moves (non-sliding, except the two-step advance):
+      Forward move     ``d_row == direction, d_col == 0``
+                       → ONLY when destination is strictly empty (``"."``).
+      Two-step advance ``d_row == 2*direction, d_col == 0``
+                       → ONLY from the colour's start row (checked via
+                         ``is_valid_with_board``, which needs the board's
+                         height), destination strictly empty, and the
+                         intermediate square clear (``requires_path_check``
+                         routes this through MoveValidator's normal
+                         ``_path_clear``, same as a sliding piece).
       Diagonal capture ``d_row == direction, abs(d_col) == 1``
-                     → ONLY when destination is occupied by an enemy piece
-                       (friendly-fire guard in MoveValidator handles colour).
+                       → ONLY when destination is occupied by an enemy piece
+                         (friendly-fire guard in MoveValidator handles colour).
+
+    Promotion (a Pawn reaching the back rank becomes a Queen) is a board
+    mutation applied by ``GameEngine`` after the move resolves — it isn't
+    a legality concern and has no bearing on this class.
     """
 
     @property
@@ -167,10 +205,14 @@ class PawnRule(MovementRule):
         return False
 
     def is_valid_shape(self, from_pos: Position, to_pos: Position) -> bool:
-        """Loose geometry check (board-agnostic): one step forward or diagonal."""
+        """Loose geometry check (board-agnostic): one step forward/diagonal,
+        or two straight. Direction, start-row, and path are enforced by
+        ``is_valid_with_context`` / ``is_valid_with_board``."""
         d_row = abs(to_pos.row - from_pos.row)
         d_col = abs(to_pos.col - from_pos.col)
-        return d_row == 1 and d_col in (0, 1)
+        if d_col == 0:
+            return d_row in (1, 2)
+        return d_row == 1 and d_col == 1
 
     def is_valid_with_context(
         self,
@@ -184,13 +226,35 @@ class PawnRule(MovementRule):
         d_row: int = to_pos.row - from_pos.row
         d_col: int = to_pos.col - from_pos.col
 
-        if d_row != direction:
-            return False
         if d_col == 0:
+            if d_row not in (direction, 2 * direction):
+                return False
             return dest_piece == "."
-        if abs(d_col) == 1:
+        if d_row == direction and abs(d_col) == 1:
             return dest_piece is not None and dest_piece != "."
         return False
+
+    def requires_path_check(self, from_pos: Position, to_pos: Position) -> bool:
+        """Only the two-step advance can be blocked mid-flight."""
+        return abs(to_pos.row - from_pos.row) == 2
+
+    def is_valid_with_board(
+        self,
+        piece: str,
+        from_pos: Position,
+        to_pos: Position,
+        board: AbstractBoard,
+    ) -> bool:
+        """The two-step advance is only legal from the colour's start row.
+
+        A colour's start row is the board edge it advances *away* from:
+        White's is the last row (``num_rows - 1``); Black's is row 0 —
+        the mirror image. One-/zero-step moves are unrestricted here.
+        """
+        if abs(to_pos.row - from_pos.row) != 2:
+            return True
+        start_row = board.num_rows - 1 if piece[0] == "w" else 0
+        return from_pos.row == start_row
 
 
 # ===========================================================================
@@ -253,10 +317,14 @@ class MoveValidator:
         # Friendly fire: cannot land on a square occupied by own colour.
         if dest is not None and dest != "." and dest[0] == piece[0]:
             return False
-        # Sliding pieces must have an unobstructed path.
-        if rule.is_sliding:
-            return self._path_clear(board, from_pos, to_pos)
-        return True
+        # Sliding pieces (and pieces like Pawn whose blocking is move-
+        # specific, e.g. its two-step advance) must have a clear path.
+        if rule.requires_path_check(from_pos, to_pos) and not self._path_clear(
+            board, from_pos, to_pos
+        ):
+            return False
+        # Final board-aware check (e.g. Pawn's two-step start-row rule).
+        return rule.is_valid_with_board(piece, from_pos, to_pos, board)
 
     @staticmethod
     def _path_clear(
