@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from typing import List
 
+from controllers.click_controller import ClickController
 from core.config import JUMP_DURATION, MOVE_DURATION
 from core.models import Color, PendingJump, PendingMove, Position
 from engine.board import AbstractBoard
+from engine.board_mapper import BoardMapper
+from engine.board_renderer import BoardRenderer, TextBoardRenderer
 from engine.game_over import GameOverRule, KingCaptureRule
+from engine.rule_engine import MoveResult, RuleEngine
 from engine.rules import MoveValidator
 from ui.events import (
     AirborneCaptureEvent,
@@ -19,10 +23,44 @@ from ui.events import (
 )
 
 # ---------------------------------------------------------------------------
-# Kung Fu Chess – Game Engine (Iteration 8: Jump)
+# Kung Fu Chess – Game Engine (Iteration 11: Clicks drive RuleEngine)
 # ---------------------------------------------------------------------------
 # New in this iteration
 # ----------------------
+#   * ClickController now forwards move attempts to try_move (RuleEngine
+#     -backed, instant) instead of attempt_move (MoveValidator-backed,
+#     queued). Clicking a piece then a destination moves it IMMEDIATELY —
+#     select -> RuleEngine validates -> GameEngine applies -> game-over
+#     check, exactly try_move's own contract. Adding a new piece type is
+#     purely a new IPieceRule + one RuleEngine.register() call: neither
+#     ClickController nor GameEngine needs to change (RuleEngine's
+#     registry dispatch is already piece-agnostic).
+#   * attempt_move/tick()'s real-time pipeline (PendingMove, transit
+#     lock, the opposite-colour route lock, jump interception) still
+#     exists, still fully works, and is still exercised by its own
+#     tests — it's simply no longer reachable through handle_click.
+#     Call attempt_move()/handle_jump()/tick() directly to use it.
+#
+# Iteration 10 recap: RuleEngine service layer
+# -----------------------------------------------
+#   * try_move(from_pos, to_pos) -> MoveResult: a synchronous, plain
+#     RuleEngine-backed move. GameEngine is confirmed/kept as the single
+#     service layer that owns board state — it is the only component
+#     that ever calls board.move_piece / board.set_piece_at; RuleEngine
+#     only reads the board to decide legality and never mutates it.
+#
+# Iteration 9 recap: Click Controller
+# -------------------------------------
+#   * Click *semantics* (select / switch selection / attempt move) moved
+#     out into ClickController — GameEngine no longer decides what a
+#     click means, only whether a forwarded move is legal. handle_click
+#     is now a one-line delegation; ``selection`` is a read-only property
+#     proxying the controller. is_selectable() is the selection-side
+#     legality surface ClickController calls into (see try_move for the
+#     move-side surface, now used instead of attempt_move).
+#
+# Iteration 8 recap: Jump
+# ------------------------
 #   * handle_jump(x, y) sends a piece airborne for ``jump_duration`` ms
 #     (default JUMP_DURATION). Unlike a move, a jump never relocates its
 #     piece — it stays on its own cell the whole time, tracked separately
@@ -44,9 +82,26 @@ class GameEngine:
 
     Responsibilities
     ----------------
-    * Convert pixel coordinates to board cells (``handle_click``).
-    * Manage single-piece selection state.
-    * Validate moves via ``MoveValidator`` and queue them as ``PendingMove``.
+    * The single service layer that owns board state. Nothing else may
+      mutate it: ``board.move_piece``/``board.set_piece_at`` are called
+      only from within this class (``tick()`` and ``try_move``) — every
+      other component (``RuleEngine``, ``MoveValidator``,
+      ``ClickController``, ...) only ever *reads* the board.
+    * Be the sole authority on move *legality*, through two parallel
+      pathways: ``try_move``/``is_selectable`` (synchronous, plain
+      ``RuleEngine``-backed — what ``ClickController`` uses behind
+      ``handle_click``, and the recommended pathway for new code) and
+      ``attempt_move`` (the older real-time, queued pipeline backed by
+      ``MoveValidator`` plus the busy/route-lock rules — still fully
+      functional, just no longer reachable through a click; call it
+      directly, alongside ``tick()``, to use it). Click *semantics*
+      (what a click means) are NOT this class's job; they live in
+      ``ClickController``, which this class delegates ``handle_click``
+      to and exposes via the read-only ``selection`` property.
+    * Translate pixel coordinates to board cells via ``BoardMapper``
+      (used directly by ``handle_jump``, and indirectly by
+      ``ClickController`` for ``handle_click``) — the only component
+      that does so; nothing does raw ``x // cell_size`` arithmetic.
     * Advance the game clock (``tick``); execute moves whose arrival time is due.
     * Notify registered ``Observer`` instances on ``RenderEvent``,
       ``TimeAdvancedEvent``, and ``MoveCompletedEvent``.
@@ -60,18 +115,26 @@ class GameEngine:
         move_duration: int = MOVE_DURATION,
         game_over_rule: GameOverRule | None = None,
         jump_duration: int = JUMP_DURATION,
+        renderer: BoardRenderer | None = None,
+        mapper: BoardMapper | None = None,
+        rule_engine: RuleEngine | None = None,
     ) -> None:
         self.board: AbstractBoard = board
-        self.selection: Position | None = None
         self.current_time: int = 0
-        self._cell_size: int = cell_size
+        self._mapper: BoardMapper = mapper if mapper is not None else BoardMapper(cell_size)
         self._move_duration: int = move_duration
         self._jump_duration: int = jump_duration
         self._validator: MoveValidator = (
             validator if validator is not None else MoveValidator()
         )
+        self._rule_engine: RuleEngine = (
+            rule_engine if rule_engine is not None else RuleEngine()
+        )
         self._game_over_rule: GameOverRule = (
             game_over_rule if game_over_rule is not None else KingCaptureRule()
+        )
+        self._renderer: BoardRenderer = (
+            renderer if renderer is not None else TextBoardRenderer()
         )
         self._pending: List[PendingMove] = []
         self._airborne: List[PendingJump] = []
@@ -82,6 +145,9 @@ class GameEngine:
         # move can run — so a stateful rule like KingCaptureRule can tell
         # "this colour never had a King" apart from "its King was captured".
         self._game_over_rule.check(board)
+        # Click semantics (select / switch-selection / attempt-move) are
+        # entirely owned by ClickController — see handle_click below.
+        self._click_controller: ClickController = ClickController(self, self._mapper)
 
     # ------------------------------------------------------------------
     # Subject interface
@@ -97,7 +163,7 @@ class GameEngine:
 
     def request_render(self) -> None:
         """Broadcast a ``RenderEvent`` carrying the current board text."""
-        self._notify(RenderEvent(board_text=self.board.render()))
+        self._notify(RenderEvent(board_text=self._renderer.render(self.board)))
 
     # ------------------------------------------------------------------
     # Game commands
@@ -106,76 +172,132 @@ class GameEngine:
     def handle_click(self, x: int, y: int) -> None:
         """Process a pixel-coordinate click.
 
-        State machine
-        -------------
-        * Out-of-bounds click → silently ignored.
-        * No selection, empty square → silently ignored.
-        * No selection, piece not in transit → piece selected.
-        * No selection, piece in transit → silently ignored (cannot select
-          or redirect a piece that is already mid-movement).
-        * Selection exists, friendly piece not in transit → selection replaced.
-        * Selection exists, friendly piece in transit → silently ignored;
-          current selection is left unchanged.
-        * Selection exists, empty / enemy cell:
-            - Legal move  → ``PendingMove`` queued; piece stays at origin until
-              ``tick`` executes the move at ``arrival_time``.  Selection cleared.
-            - Illegal move → board unchanged (silent failure).  Selection cleared.
+        Entirely delegated to ``ClickController``, which owns click
+        semantics (select / switch selection / attempt move) and the
+        ``selection`` state — see that class for the full state machine.
+        GameEngine's only role here is legality: ``ClickController``
+        forwards every move attempt to ``try_move`` (so a click that
+        completes a move applies it immediately) and every selection
+        decision consults ``is_selectable``; it never decides legality
+        itself.
+        """
+        self._click_controller.handle_click(x, y)
 
-        Note: ``self.selection`` can never itself refer to a busy (in-transit
-        or airborne) square — both selection paths above require
-        ``not self._is_busy(pos)`` before assigning — so no separate guard
-        is needed once a selection is already held, other than re-checking
-        it in case a ``jump`` command intervened between two clicks (see
-        the "Attempt move" guard below).
+    def is_selectable(self, pos: Position) -> bool:
+        """True iff *pos* holds a piece that can currently be selected.
 
-        Once the game is over (``self.game_over``) every click is silently
-        ignored — no selection, no queued move.
+        A piece is selectable iff it exists and isn't busy (mid-move or
+        airborne — both only possible via ``attempt_move``/``handle_jump``,
+        called directly rather than through a click). Pure query used by
+        ``ClickController`` — it says nothing about whether any
+        particular move from that piece would be legal; that's
+        ``try_move``'s job.
+        """
+        piece = self.board.get_piece_at(pos)
+        return piece is not None and piece != "." and not self._is_busy(pos)
+
+    def attempt_move(self, from_pos: Position, to_pos: Position) -> bool:
+        """The real-time pipeline's move attempt — queues rather than
+        applies. No longer reachable through ``handle_click`` (see
+        ``try_move``, which ``ClickController`` uses instead); call this
+        directly to drive the delayed-movement/transit-lock/route-lock
+        machinery.
+
+        Attempts to move whatever is at *from_pos* to *to_pos*, queuing
+        a ``PendingMove`` iff every check passes. Returns True iff the
+        move was queued; the piece itself only relocates later, when
+        ``tick`` reaches its ``arrival_time``. Checks, in order:
+
+        * The game isn't over.
+        * A piece actually sits at *from_pos* and isn't busy (mid-move
+          or airborne).
+        * ``MoveValidator`` approves the shape/destination/path.
+        * The move doesn't violate the opposite-colour route lock.
         """
         if self.game_over:
-            return
+            return False
 
-        col = x // self._cell_size
-        row = y // self._cell_size
+        piece = self.board.get_piece_at(from_pos)
+        if piece is None or piece == "." or self._is_busy(from_pos):
+            return False
 
-        if not (0 <= row < self.board.num_rows and 0 <= col < self.board.num_cols):
-            return
+        if not self._validator.is_valid(piece, from_pos, to_pos, self.board):
+            return False
+        if self._route_conflicts(piece, from_pos, to_pos):
+            return False
 
-        pos = Position(row, col)
-        clicked_piece = self.board.get_piece_at(pos)
-
-        if self.selection is None:
-            if clicked_piece != "." and not self._is_busy(pos):
-                self.selection = pos
-            return
-
-        selected_piece = self.board.get_piece_at(self.selection)
-
-        # Re-select a different friendly piece (skip if that piece is busy).
-        if clicked_piece != "." and self._is_friendly(selected_piece, clicked_piece):
-            if not self._is_busy(pos):
-                self.selection = pos
-            return
-
-        # Attempt move — selection always cleared after this point.
-        if (
-            not self._is_busy(self.selection)
-            and self._validator.is_valid(selected_piece, self.selection, pos, self.board)
-            and not self._route_conflicts(selected_piece, self.selection, pos)
-        ):
-            cells_moved = max(
-                abs(self.selection.row - pos.row),
-                abs(self.selection.col - pos.col),
+        cells_moved = max(
+            abs(from_pos.row - to_pos.row),
+            abs(from_pos.col - to_pos.col),
+        )
+        arrival = self.current_time + cells_moved * self._move_duration
+        self._pending.append(
+            PendingMove(
+                piece=piece,
+                from_pos=from_pos,
+                to_pos=to_pos,
+                arrival_time=arrival,
             )
-            arrival = self.current_time + cells_moved * self._move_duration
-            self._pending.append(
-                PendingMove(
-                    piece=selected_piece,
-                    from_pos=self.selection,
-                    to_pos=pos,
-                    arrival_time=arrival,
-                )
+        )
+        return True
+
+    def try_move(self, from_pos: Position, to_pos: Position) -> MoveResult:
+        """Synchronous, ``RuleEngine``-backed move — GameEngine's plain
+        service-layer entry point. This is what ``ClickController``
+        forwards every move attempt to behind ``handle_click``.
+
+        Validates via ``RuleEngine.validate_move`` and, only if the
+        result is ``MoveResult.OK``, applies the move to the board
+        *immediately* (``board.move_piece``) — no queueing, no
+        ``arrival_time``, no waiting on ``tick``. Always returns the
+        exact ``MoveResult`` that decided the outcome, so a caller can
+        tell precisely why a move was rejected instead of just that it
+        was. GameEngine is the only component that ever mutates the
+        board — ``RuleEngine`` only reads it to decide legality.
+
+        Adding a new piece type never requires touching this method,
+        ``ClickController``, or anything else here — ``RuleEngine``
+        dispatches by piece-type character through its own registry, so
+        a new ``IPieceRule`` plus one ``register()`` call is the entire
+        change (Strategy pattern / OCP).
+
+        This intentionally does **not** model the older real-time
+        gameplay rules layered on top of ``MoveValidator`` in
+        ``attempt_move`` (still present, just no longer click-driven):
+        no busy/in-transit or airborne check, no opposite-colour route
+        lock, no interaction with an airborne defender at *to_pos* (an
+        enemy there is just an ordinary capture, same as any other piece
+        — Jump's mid-air interception is an ``attempt_move``-only
+        concept). Call ``attempt_move``/``handle_jump``/``tick`` directly
+        for that pipeline; ``try_move`` is what actual clicks use now.
+
+        On success this still triggers the same landing side effects any
+        other completed move does: Pawn promotion and a game-over check,
+        so board state stays consistent regardless of which pathway
+        moved a piece. A ``MoveCompletedEvent`` is fired for parity with
+        ``tick()``'s notifications; ``arrival_time`` is reported as the
+        current clock value, since the move already happened.
+        """
+        if self.game_over:
+            return MoveResult.GAME_OVER
+
+        piece = self.board.get_piece_at(from_pos) or "."
+        result = self._rule_engine.validate_move(piece, from_pos, to_pos, self.board)
+        if not result.is_ok:
+            return result
+
+        self.board.move_piece(from_pos, to_pos)
+        self._maybe_promote(piece, to_pos)
+        self._notify(
+            MoveCompletedEvent(
+                piece=piece,
+                from_pos=from_pos,
+                to_pos=to_pos,
+                arrival_time=self.current_time,
             )
-        self.selection = None
+        )
+        self._check_game_over()
+        return MoveResult.OK
 
     def handle_jump(self, x: int, y: int) -> None:
         """Process a pixel-coordinate jump command.
@@ -196,13 +318,11 @@ class GameEngine:
         if self.game_over:
             return
 
-        col = x // self._cell_size
-        row = y // self._cell_size
+        pos = self._mapper.pixel_to_cell(x, y)
 
-        if not (0 <= row < self.board.num_rows and 0 <= col < self.board.num_cols):
+        if not (0 <= pos.row < self.board.num_rows and 0 <= pos.col < self.board.num_cols):
             return
 
-        pos = Position(row, col)
         piece = self.board.get_piece_at(pos)
 
         if piece is None or piece == "." or self._is_busy(pos):
@@ -319,6 +439,12 @@ class GameEngine:
     def clock_ms(self) -> int:
         """Current game-clock value in milliseconds (alias for current_time)."""
         return self.current_time
+
+    @property
+    def selection(self) -> Position | None:
+        """Currently selected cell, if any — owned by ``ClickController``;
+        exposed here read-only for callers/tests that inspect it."""
+        return self._click_controller.selection
 
     def is_in_transit(self, pos: Position) -> bool:
         """Return True if *pos* is the origin of a move that has not yet arrived."""

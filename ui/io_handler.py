@@ -19,8 +19,9 @@ from ui.events import GameEvent, Observer, RenderEvent
 #   engine._notify(RenderEvent) → handler.on_event(RenderEvent)
 #   handler.on_event → writer.write(board_text)
 #
-# The handler never calls engine.board.render() directly, preserving full
-# decoupling between the domain and the presentation layer.
+# The handler never touches Board directly — it renders via whatever
+# BoardRenderer the engine was built with (default: TextBoardRenderer) —
+# preserving full decoupling between the domain and the presentation layer.
 #
 # Input format:
 #

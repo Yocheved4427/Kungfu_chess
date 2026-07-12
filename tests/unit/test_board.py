@@ -68,21 +68,6 @@ class TestTextBoard:
         board = TextBoard([])
         assert board.num_cols == 0
 
-    # --- render -------------------------------------------------------------
-
-    def test_render_single_row(self):
-        board = TextBoard([_RANK_8])
-        assert board.render() == _RANK_8
-
-    def test_render_multiple_rows_joined_by_newline(self):
-        rows = [_RANK_8, "wP wP wP wP wP wP wP wP", ". . . . . . . ."]
-        board = TextBoard(rows)
-        assert board.render() == "\n".join(rows)
-
-    def test_render_has_no_trailing_newline(self):
-        board = TextBoard([_RANK_8, "bR bN bB bQ bK bB bN bR"])
-        assert not board.render().endswith("\n")
-
     # --- get_piece_at -------------------------------------------------------
 
     def test_get_piece_at_white_rook_top_left(self):

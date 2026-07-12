@@ -8,11 +8,22 @@ from core.models import Color, Position
 # ---------------------------------------------------------------------------
 # Kung Fu Chess – Board representation
 # ---------------------------------------------------------------------------
-# AbstractBoard / TextBoard  – board storage and mutation.
+# AbstractBoard / TextBoard  – pure logical board state: which piece (if
+# any) occupies which (row, col) cell, and mutating that. Nothing here
+# knows about pixels, screen coordinates, mouse clicks, rendering/display,
+# or animation — those are separate concerns, kept in separate components:
+#   * Pixel <-> cell translation and click/jump handling: engine.game.GameEngine.
+#   * Turning board state into a displayable form: engine.board_renderer.
 #
 # BoardParser lives in engine.board_parser.
 # BoardValidator lives in engine.board_validator.
 # All consumers depend on AbstractBoard only (Dependency Inversion).
+#
+# Mutation ownership: move_piece() / set_piece_at() exist here so
+# GameEngine — the single service layer that owns game state — has
+# somewhere to apply an approved move. No other component should call
+# them: validators/rule engines (engine.rules, engine.rule_engine) only
+# ever read a board to decide legality; they never mutate one.
 # ---------------------------------------------------------------------------
 
 
@@ -21,9 +32,11 @@ from core.models import Color, Position
 # ===========================================================================
 
 class AbstractBoard(ABC):
-    """Stable interface for a chess board.
+    """Stable interface for a chess board's logical state.
 
-    All business logic depends on this interface, never on TextBoard directly.
+    All business logic depends on this interface, never on TextBoard
+    directly. Deliberately minimal: rows/columns and piece tokens only —
+    no pixels, no rendering, no input handling.
     """
 
     @abstractmethod
@@ -39,10 +52,6 @@ class AbstractBoard(ABC):
     @abstractmethod
     def num_cols(self) -> int:
         """Total number of files (columns)."""
-
-    @abstractmethod
-    def render(self) -> str:
-        """Canonical text representation; rows separated by newlines."""
 
     @abstractmethod
     def get_piece_at(self, pos: Position) -> str | None:
@@ -101,9 +110,6 @@ class TextBoard(AbstractBoard):
     @property
     def num_cols(self) -> int:
         return len(self._rows[0].split()) if self._rows else 0
-
-    def render(self) -> str:
-        return "\n".join(self._rows)
 
     def get_piece_at(self, pos: Position) -> str | None:
         if pos.row < 0 or pos.row >= self.num_rows:

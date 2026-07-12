@@ -14,9 +14,14 @@ Input format
 
 Output is produced only by ``print board`` commands.
 
-Moves are asynchronous: ``click`` only queues a PendingMove.  The board is
-mutated only once a ``wait`` command advances the clock past the move's
-arrival_time (Chebyshev distance * MOVE_DURATION, default 1000 ms/cell).
+A completed ``click`` sequence (select, then destination) applies a legal
+move IMMEDIATELY — click handling is backed by GameEngine.try_move, a
+synchronous, RuleEngine-validated move; ``wait`` isn't needed to see the
+board change. ``wait`` still exists for the older, queued real-time
+pipeline (GameEngine.attempt_move / tick()), which remains fully
+functional but is no longer reachable through a click — nothing in this
+pipeline (BoardParser -> TextBoard -> BoardValidator -> GameEngine ->
+ChessIOHandler) drives it, so it isn't exercised by these tests.
 
 Error codes
 -----------
@@ -191,20 +196,23 @@ class TestPipelineClick:
         handler.run()
         assert writer.getvalue() == _STANDARD_BOARD_OUTPUT
 
-    def test_click_sequence_queues_move_without_mutating_board(self):
-        """Two clicks queue the move but don't mutate the board immediately —
-        moves resolve asynchronously via a later ``wait``."""
+    def test_click_sequence_moves_the_piece_immediately_no_wait_needed(self):
+        """Two clicks (select, then destination) apply the move right
+        away — click handling is backed by GameEngine.try_move (a
+        synchronous, RuleEngine-validated move), not the older queued
+        pipeline. No ``wait`` command is needed for the board to change."""
         handler, writer = _make_handler(
             "Board:\nwR .\n. .\nCommands:\nclick 0 0\nclick 0 100\nprint board\n"
         )
         handler.run()
         output_rows = writer.getvalue().splitlines()
-        assert output_rows[0].split()[0] == "wR"
-        assert output_rows[1].split()[0] == "."
+        assert output_rows[0].split()[0] == "."
+        assert output_rows[1].split()[0] == "wR"
 
-    def test_click_sequence_then_wait_moves_piece_on_board(self):
-        """Select wR at (0,0), queue a one-square move down, then wait for it
-        to arrive before printing."""
+    def test_click_sequence_then_wait_the_wait_is_a_harmless_no_op(self):
+        """A ``wait`` after a completed click sequence has nothing queued
+        to resolve — the board was already updated by the clicks — so
+        the printed board is unaffected by it."""
         handler, writer = _make_handler(
             f"Board:\nwR .\n. .\nCommands:\nclick 0 0\nclick 0 100\n"
             f"wait {MOVE_DURATION}\nprint board\n"

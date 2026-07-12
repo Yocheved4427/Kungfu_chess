@@ -175,11 +175,11 @@ class TestGameOverBlocksLaterClicks:
 
     def test_board_is_unchanged_by_post_game_over_clicks(self):
         engine = self._engine_after_game_over()
-        before = engine.board.render()
+        before = engine.board.get_rows()
         engine.handle_click(200, 200)
         engine.handle_click(100, 200)
         engine.tick(1000)
-        assert engine.board.render() == before
+        assert engine.board.get_rows() == before
 
     def test_existing_selection_before_game_over_is_irrelevant_afterward(self):
         """Even a piece that was already validly selected before the
@@ -219,11 +219,12 @@ class TestGameOverRuleIsNotArmedWithoutBothKings:
 
     def test_clicks_still_work_normally_on_a_kingless_board(self):
         board = TextBoard(["wR . .", ". . .", ". . ."])
-        engine = GameEngine(board, cell_size=100, move_duration=1000)
+        engine = GameEngine(board, cell_size=100)
         engine.handle_click(0, 0)
         engine.handle_click(100, 0)
         assert engine.selection is None
-        assert len(engine._pending) == 1
+        assert engine.board.get_piece_at(Position(0, 1)) == "wR"
+        assert engine.game_over is False
 
 
 class TestGameOverRuleDependencyInjection:
