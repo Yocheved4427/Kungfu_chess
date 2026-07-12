@@ -4,7 +4,16 @@ from abc import ABC, abstractmethod
 from enum import Enum, auto
 from typing import TYPE_CHECKING
 
-from core.models import Position
+from core.models import Position, same_color
+from engine.geometry import (
+    is_diagonal,
+    is_king_step,
+    is_knight_shape,
+    is_orthogonal,
+    path_clear,
+    pawn_direction,
+    pawn_start_row,
+)
 
 if TYPE_CHECKING:
     from engine.board import AbstractBoard
@@ -124,9 +133,7 @@ class RookRule(IPieceRule):
     """Horizontal or vertical movement, any distance. Blockable."""
 
     def is_legal_move(self, piece, from_pos, to_pos, board) -> bool:
-        dr = to_pos.row - from_pos.row
-        dc = to_pos.col - from_pos.col
-        return (dr == 0) != (dc == 0)   # exactly one axis moves
+        return is_orthogonal(from_pos, to_pos)
 
     def requires_path_check(self, from_pos, to_pos) -> bool:
         return True
@@ -136,9 +143,7 @@ class BishopRule(IPieceRule):
     """Diagonal movement, any distance. Blockable."""
 
     def is_legal_move(self, piece, from_pos, to_pos, board) -> bool:
-        dr = abs(to_pos.row - from_pos.row)
-        dc = abs(to_pos.col - from_pos.col)
-        return dr == dc and dr > 0
+        return is_diagonal(from_pos, to_pos)
 
     def requires_path_check(self, from_pos, to_pos) -> bool:
         return True
@@ -148,11 +153,7 @@ class QueenRule(IPieceRule):
     """Rook + Bishop shapes combined, any distance. Blockable."""
 
     def is_legal_move(self, piece, from_pos, to_pos, board) -> bool:
-        dr = to_pos.row - from_pos.row
-        dc = to_pos.col - from_pos.col
-        orthogonal = (dr == 0) != (dc == 0)
-        diagonal = abs(dr) == abs(dc) and dr != 0
-        return orthogonal or diagonal
+        return is_orthogonal(from_pos, to_pos) or is_diagonal(from_pos, to_pos)
 
     def requires_path_check(self, from_pos, to_pos) -> bool:
         return True
@@ -162,20 +163,14 @@ class KnightRule(IPieceRule):
     """L-shaped movement. Jumps over pieces — never blockable."""
 
     def is_legal_move(self, piece, from_pos, to_pos, board) -> bool:
-        dr = abs(to_pos.row - from_pos.row)
-        dc = abs(to_pos.col - from_pos.col)
-        return (dr, dc) in {(1, 2), (2, 1)}
+        return is_knight_shape(from_pos, to_pos)
 
 
 class KingRule(IPieceRule):
     """One step in any direction. Never blockable (no square in between)."""
 
     def is_legal_move(self, piece, from_pos, to_pos, board) -> bool:
-        dr = abs(to_pos.row - from_pos.row)
-        dc = abs(to_pos.col - from_pos.col)
-        if max(dr, dc) != 1:
-            return False
-        return (dr == 0) != (dc == 0) or dr == dc
+        return is_king_step(from_pos, to_pos)
 
 
 class PawnRule(IPieceRule):
@@ -201,7 +196,7 @@ class PawnRule(IPieceRule):
     """
 
     def is_legal_move(self, piece, from_pos, to_pos, board) -> bool:
-        direction = -1 if piece[0] == "w" else 1
+        direction = pawn_direction(piece)
         d_row = to_pos.row - from_pos.row
         d_col = to_pos.col - from_pos.col
         dest = board.get_piece_at(to_pos)
@@ -212,8 +207,7 @@ class PawnRule(IPieceRule):
             if d_row == 2 * direction:
                 if dest != ".":
                     return False
-                start_row = board.num_rows - 1 if piece[0] == "w" else 0
-                return from_pos.row == start_row
+                return from_pos.row == pawn_start_row(piece, board.num_rows)
             return False
 
         if d_row == direction and abs(d_col) == 1:
@@ -276,7 +270,7 @@ class RuleEngine:
         look up its rule and its colour; the actual occupant of
         *from_pos* is read fresh from *board* for the emptiness check.
         """
-        if not (self._in_bounds(from_pos, board) and self._in_bounds(to_pos, board)):
+        if not (board.contains(from_pos) and board.contains(to_pos)):
             return MoveResult.OUTSIDE_BOARD
 
         if from_pos == to_pos:
@@ -294,34 +288,13 @@ class RuleEngine:
             return MoveResult.ILLEGAL_PATTERN
 
         dest = board.get_piece_at(to_pos)
-        if dest is not None and dest != "." and dest[0] == piece[0]:
+        # same_color(".", piece) is always False, so no extra guard is needed.
+        if same_color(dest, piece):
             return MoveResult.FRIENDLY_FIRE
 
-        if rule.requires_path_check(from_pos, to_pos) and not self._path_clear(
+        if rule.requires_path_check(from_pos, to_pos) and not path_clear(
             board, from_pos, to_pos
         ):
             return MoveResult.BLOCKED_PATH
 
         return MoveResult.OK
-
-    @staticmethod
-    def _in_bounds(pos: Position, board: AbstractBoard) -> bool:
-        return 0 <= pos.row < board.num_rows and 0 <= pos.col < board.num_cols
-
-    @staticmethod
-    def _path_clear(
-        board: AbstractBoard, from_pos: Position, to_pos: Position
-    ) -> bool:
-        """Return True iff every square strictly between from and to is empty."""
-        dr = to_pos.row - from_pos.row
-        dc = to_pos.col - from_pos.col
-        steps = max(abs(dr), abs(dc))
-        step_r = dr // steps
-        step_c = dc // steps
-        r, c = from_pos.row + step_r, from_pos.col + step_c
-        while (r, c) != (to_pos.row, to_pos.col):
-            if board.get_piece_at(Position(r, c)) != ".":
-                return False
-            r += step_r
-            c += step_c
-        return True

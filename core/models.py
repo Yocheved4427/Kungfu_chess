@@ -17,6 +17,20 @@ class Color(Enum):
     BLACK = "b"
 
 
+def same_color(piece_a: str | None, piece_b: str | None) -> bool:
+    """Return True iff *piece_a* and *piece_b* are both real piece tokens
+    (e.g. ``"wR"``, ``"bK"``) belonging to the same colour.
+
+    False whenever either side is ``None`` — the shared home for a check
+    that used to be duplicated (friendly-fire detection, selection/
+    reselection, route-lock colour comparison) across engine.rules,
+    engine.rule_engine, engine.game, and controllers.click_controller.
+    """
+    if piece_a is None or piece_b is None:
+        return False
+    return piece_a[0] == piece_b[0]
+
+
 @dataclass(frozen=True)
 class Position:
     """An (row, col) cell address on the board.  Immutable value object."""

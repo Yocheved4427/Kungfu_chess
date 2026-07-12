@@ -206,27 +206,23 @@ class TestGameEngineClickFriendly:
 # handle_click() – move queued (empty or enemy target)
 # ===========================================================================
 
-class TestGameEngineClickMovesInstantly:
-    """handle_click forwards a completed selection to try_move (via
-    ClickController), which applies a legal move IMMEDIATELY — no
-    queueing, no arrival_time, no waiting on tick(). The older queued
-    pipeline (attempt_move/tick(), covered by TestGameEngineClickQueuesMove
-    equivalents that used to live here) is still fully supported — see
-    test_realtime_conflicts.py / test_transit_lock.py, which now drive
-    it directly via attempt_move() rather than through a click."""
-
-    def test_click_empty_with_selection_moves_the_piece_immediately(self):
+class TestGameEngineClickQueuesMove:
+    def test_click_empty_with_selection_queues_pending_move(self):
         engine = _mini_engine()
         engine.handle_click(0, 0)     # select wK at (0,0)
-        engine.handle_click(100, 0)   # click empty at (0,1) → moves now
-        assert engine.board.get_piece_at(Position(0, 0)) == "."
-        assert engine.board.get_piece_at(Position(0, 1)) == "wK"
+        engine.handle_click(100, 0)   # click empty at (0,1) → queue move
+        assert len(engine._pending) == 1
+        pm = engine._pending[0]
+        assert pm.piece == "wK"
+        assert pm.from_pos == Position(0, 0)
+        assert pm.to_pos == Position(0, 1)
 
-    def test_move_does_not_queue_a_pending_move(self):
+    def test_board_unchanged_until_move_arrives(self):
         engine = _mini_engine()
         engine.handle_click(0, 0)
         engine.handle_click(100, 0)
-        assert engine._pending == []
+        assert engine.board.get_piece_at(Position(0, 0)) == "wK"
+        assert engine.board.get_piece_at(Position(0, 1)) == "."
 
     def test_move_clears_selection(self):
         engine = _mini_engine()
@@ -234,43 +230,59 @@ class TestGameEngineClickMovesInstantly:
         engine.handle_click(100, 0)
         assert engine.selection is None
 
-    def test_click_enemy_with_selection_captures_immediately(self):
+    def test_move_executes_on_arrival_tick(self):
+        engine = _mini_engine()
+        engine.handle_click(0, 0)     # select wK
+        engine.handle_click(100, 0)   # queue move to (0,1), 1 cell away
+        engine.tick(engine._move_duration)
+        assert engine.board.get_piece_at(Position(0, 0)) == "."
+        assert engine.board.get_piece_at(Position(0, 1)) == "wK"
+
+    def test_click_enemy_with_selection_captures_on_arrival(self):
         engine = _mini_engine()
         engine.handle_click(0, 0)       # select wK at (0,0)
-        engine.handle_click(100, 100)   # click bK at (1,1) → captures now
+        engine.handle_click(100, 100)   # click bK at (1,1) → queue capture
+        engine.tick(engine._move_duration)  # 1 cell (Chebyshev) away
         assert engine.board.get_piece_at(Position(0, 0)) == "."
         assert engine.board.get_piece_at(Position(1, 1)) == "wK"
 
-    def test_tick_is_not_required_for_the_move_to_apply(self):
+    def test_arrival_time_scales_with_chebyshev_distance(self):
         board = TextBoard(["wR . .", ". . .", ". . ."])
         engine = GameEngine(board, move_duration=100)
         engine.handle_click(0, 0)     # select wR
-        engine.handle_click(200, 0)   # move 2 cells right — applies now
-        assert engine.board.get_piece_at(Position(0, 2)) == "wR"
-        assert engine.current_time == 0  # clock never advanced
+        engine.handle_click(200, 0)   # move 2 cells right
+        assert engine._pending[0].arrival_time == 200
 
-    def test_move_completed_event_fires_immediately(self):
+    def test_pending_move_removed_after_execution(self):
+        engine = _mini_engine()
+        engine.handle_click(0, 0)
+        engine.handle_click(100, 0)
+        engine.tick(engine._move_duration)
+        assert engine._pending == []
+
+    def test_move_completed_event_fired_on_arrival(self):
         engine = _mini_engine()
         obs = _RecordingObserver()
         engine.add_observer(obs)
         engine.handle_click(0, 0)
         engine.handle_click(100, 0)
+        engine.tick(engine._move_duration)
         completed = [e for e in obs.events if isinstance(e, MoveCompletedEvent)]
         assert len(completed) == 1
         assert completed[0].piece == "wK"
         assert completed[0].from_pos == Position(0, 0)
         assert completed[0].to_pos == Position(0, 1)
-        assert completed[0].arrival_time == engine.current_time
+        assert completed[0].arrival_time == engine._move_duration
 
-    def test_illegal_move_click_fires_no_move_completed_event(self):
-        board = TextBoard(["wR bP ."])
-        engine = GameEngine(board)
+    def test_move_not_completed_before_arrival(self):
+        engine = _mini_engine()
         obs = _RecordingObserver()
         engine.add_observer(obs)
-        engine.handle_click(0, 0)     # select wR
-        engine.handle_click(200, 0)   # blocked path — illegal
+        engine.handle_click(0, 0)
+        engine.handle_click(100, 0)
+        engine.tick(engine._move_duration - 1)
         assert not any(isinstance(e, MoveCompletedEvent) for e in obs.events)
-        assert engine.board.get_piece_at(Position(0, 0)) == "wR"
+        assert engine.board.get_piece_at(Position(0, 0)) == "wK"
 
 
 # ===========================================================================
@@ -441,20 +453,18 @@ class TestGameEngineInvalidMove:
         assert engine.selection is None
         assert engine._pending == []
 
-    def test_pawn_forward_move_is_applied_immediately(self):
-        """Pawns are fully implemented: a legal forward move IS applied.
+    def test_pawn_forward_move_is_queued(self):
+        """Pawns are fully implemented: a legal forward move IS queued.
 
         White's forward direction is decreasing row, so the pawn starts on
-        the bottom row (row=1) and moves up to row=0 — its back rank, so
-        it also promotes (see test_pawn_advanced.py for dedicated
-        promotion coverage; this test only checks the move itself lands).
+        the bottom row (row=1) and moves up to row=0.
         """
         board = TextBoard([". .", "wP ."])
         engine = GameEngine(board)
         engine.handle_click(0, 100)  # select wP at (1,0)
-        engine.handle_click(0, 0)    # forward move to (0,0) — applies now
-        assert engine.board.get_piece_at(Position(1, 0)) == "."
-        assert engine.board.get_piece_at(Position(0, 0)) in ("wP", "wQ")
+        engine.handle_click(0, 0)    # forward move to (0,0)
+        assert len(engine._pending) == 1
+        assert engine._pending[0].to_pos == Position(0, 0)
 
     def test_blocked_rook_does_not_queue_move(self):
         # Rook at (0,0), blocker at (0,1), target at (0,2)

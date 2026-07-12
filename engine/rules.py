@@ -3,7 +3,16 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
-from core.models import Position
+from core.models import Position, same_color
+from engine.geometry import (
+    is_diagonal,
+    is_king_step,
+    is_knight_shape,
+    is_orthogonal,
+    path_clear,
+    pawn_direction,
+    pawn_start_row,
+)
 
 if TYPE_CHECKING:
     from engine.board import AbstractBoard
@@ -103,9 +112,7 @@ class OrthogonalRule(MovementRule):
         return True
 
     def is_valid_shape(self, from_pos: Position, to_pos: Position) -> bool:
-        dr = to_pos.row - from_pos.row
-        dc = to_pos.col - from_pos.col
-        return (dr == 0) != (dc == 0)   # exactly one axis moves
+        return is_orthogonal(from_pos, to_pos)
 
 
 class DiagonalRule(MovementRule):
@@ -116,9 +123,7 @@ class DiagonalRule(MovementRule):
         return True
 
     def is_valid_shape(self, from_pos: Position, to_pos: Position) -> bool:
-        dr = abs(to_pos.row - from_pos.row)
-        dc = abs(to_pos.col - from_pos.col)
-        return dr == dc and dr > 0
+        return is_diagonal(from_pos, to_pos)
 
 
 class KnightRule(MovementRule):
@@ -129,9 +134,7 @@ class KnightRule(MovementRule):
         return False
 
     def is_valid_shape(self, from_pos: Position, to_pos: Position) -> bool:
-        dr = abs(to_pos.row - from_pos.row)
-        dc = abs(to_pos.col - from_pos.col)
-        return (dr, dc) in {(1, 2), (2, 1)}
+        return is_knight_shape(from_pos, to_pos)
 
 
 class _CompositeRule(MovementRule):
@@ -159,19 +162,12 @@ class KingRule(MovementRule):
     Never sliding — no intermediate squares exist for a 1-step move.
     """
 
-    _QUEEN_SHAPE: MovementRule = _CompositeRule(OrthogonalRule(), DiagonalRule())
-
     @property
     def is_sliding(self) -> bool:
         return False
 
     def is_valid_shape(self, from_pos: Position, to_pos: Position) -> bool:
-        dr = abs(to_pos.row - from_pos.row)
-        dc = abs(to_pos.col - from_pos.col)
-        return (
-            max(dr, dc) == 1
-            and self._QUEEN_SHAPE.is_valid_shape(from_pos, to_pos)
-        )
+        return is_king_step(from_pos, to_pos)
 
 
 class PawnRule(MovementRule):
@@ -222,7 +218,7 @@ class PawnRule(MovementRule):
         dest_piece: str | None,
     ) -> bool:
         """Full pawn legality: direction + destination-content checks."""
-        direction: int = -1 if piece[0] == "w" else 1
+        direction: int = pawn_direction(piece)
         d_row: int = to_pos.row - from_pos.row
         d_col: int = to_pos.col - from_pos.col
 
@@ -253,8 +249,7 @@ class PawnRule(MovementRule):
         """
         if abs(to_pos.row - from_pos.row) != 2:
             return True
-        start_row = board.num_rows - 1 if piece[0] == "w" else 0
-        return from_pos.row == start_row
+        return from_pos.row == pawn_start_row(piece, board.num_rows)
 
 
 # ===========================================================================
@@ -315,31 +310,14 @@ class MoveValidator:
         if not rule.is_valid_with_context(piece, from_pos, to_pos, dest):
             return False
         # Friendly fire: cannot land on a square occupied by own colour.
-        if dest is not None and dest != "." and dest[0] == piece[0]:
+        # same_color(".", piece) is always False, so no extra guard is needed.
+        if same_color(dest, piece):
             return False
         # Sliding pieces (and pieces like Pawn whose blocking is move-
         # specific, e.g. its two-step advance) must have a clear path.
-        if rule.requires_path_check(from_pos, to_pos) and not self._path_clear(
+        if rule.requires_path_check(from_pos, to_pos) and not path_clear(
             board, from_pos, to_pos
         ):
             return False
         # Final board-aware check (e.g. Pawn's two-step start-row rule).
         return rule.is_valid_with_board(piece, from_pos, to_pos, board)
-
-    @staticmethod
-    def _path_clear(
-        board: AbstractBoard, from_pos: Position, to_pos: Position
-    ) -> bool:
-        """Return True iff every square strictly between from and to is empty."""
-        dr = to_pos.row - from_pos.row
-        dc = to_pos.col - from_pos.col
-        steps = max(abs(dr), abs(dc))
-        step_r = dr // steps
-        step_c = dc // steps
-        r, c = from_pos.row + step_r, from_pos.col + step_c
-        while (r, c) != (to_pos.row, to_pos.col):
-            if board.get_piece_at(Position(r, c)) != ".":
-                return False
-            r += step_r
-            c += step_c
-        return True

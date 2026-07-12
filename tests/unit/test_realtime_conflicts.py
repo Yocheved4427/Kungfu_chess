@@ -159,11 +159,6 @@ class TestFriendlyPieceLanding:
 # ===========================================================================
 
 class TestInvalidPremoves:
-    """These tests are specifically about the queued attempt_move/tick()
-    pipeline's re-validate-at-arrival behaviour — try_move (what
-    handle_click uses now) applies instantly, so there's no premove
-    window for a blocker to invalidate. Driven via attempt_move directly."""
-
     def test_sliding_move_blocked_by_piece_that_moved_into_its_path(self):
         """wR (0,0) -> (0,3) is queued while the path is clear (3 cells,
         arrival = 3000). bK (1,1) -> (0,1) is queued too (1 cell, arrival
@@ -171,8 +166,10 @@ class TestInvalidPremoves:
         own arrival. The rook's premove must be dropped."""
         board = TextBoard(["wR . . .", ". bK . .", ". . . .", ". . . ."])
         engine = GameEngine(board, cell_size=100, move_duration=1000)
-        engine.attempt_move(Position(0, 0), Position(0, 3))  # path clear right now
-        engine.attempt_move(Position(1, 1), Position(0, 1))
+        engine.handle_click(0, 0)      # select wR
+        engine.handle_click(300, 0)    # queue wR -> (0,3), path clear right now
+        engine.handle_click(100, 100)  # select bK
+        engine.handle_click(100, 0)    # queue bK -> (0,1)
         engine.tick(3000)
         assert engine.board.get_piece_at(Position(0, 0)) == "wR"
         assert engine.board.get_piece_at(Position(0, 1)) == "bK"
@@ -183,8 +180,10 @@ class TestInvalidPremoves:
         engine = GameEngine(board, cell_size=100, move_duration=1000)
         obs = _RecordingObserver()
         engine.add_observer(obs)
-        engine.attempt_move(Position(0, 0), Position(0, 3))
-        engine.attempt_move(Position(1, 1), Position(0, 1))
+        engine.handle_click(0, 0)
+        engine.handle_click(300, 0)
+        engine.handle_click(100, 100)
+        engine.handle_click(100, 0)
         engine.tick(3000)
         assert [c.piece for c in obs.completed] == ["bK"]
 
@@ -222,15 +221,15 @@ class TestInvalidPremoves:
 
 class TestChronologicalDueOrder:
     def test_events_fire_in_arrival_time_order_not_queue_order(self):
-        """Needs genuine queueing to observe arrival-time ordering, so
-        it's driven via attempt_move directly rather than a click."""
         board = TextBoard(["wR . . .", ". . . .", ". . . bK", ". . . ."])
         engine = GameEngine(board, cell_size=100, move_duration=1000)
         obs = _RecordingObserver()
         engine.add_observer(obs)
 
-        engine.attempt_move(Position(0, 0), Position(0, 3))  # arrival=3000 (queued 1st)
-        engine.attempt_move(Position(2, 3), Position(1, 3))  # arrival=1000 (queued 2nd)
+        engine.handle_click(0, 0)      # select wR
+        engine.handle_click(300, 0)    # queue wR -> (0,3), arrival=3000 (queued 1st)
+        engine.handle_click(300, 200)  # select bK
+        engine.handle_click(300, 100)  # queue bK -> (1,3), arrival=1000 (queued 2nd)
 
         assert engine._pending[0].piece == "wR"
         assert engine._pending[1].piece == "bK"

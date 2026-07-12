@@ -125,6 +125,36 @@ class TestTextBoard:
         board = TextBoard(["xK"])   # 'x' is not a valid color prefix
         assert board.get_color_at(Position(0, 0)) is None
 
+    # --- contains -------------------------------------------------------
+
+    def test_contains_a_cell_inside_the_board(self):
+        board = TextBoard(["wK . .", ". . .", ". . ."])
+        assert board.contains(Position(1, 1)) is True
+
+    def test_contains_the_top_left_corner(self):
+        board = TextBoard(["wK . .", ". . .", ". . ."])
+        assert board.contains(Position(0, 0)) is True
+
+    def test_contains_the_bottom_right_corner(self):
+        board = TextBoard(["wK . .", ". . .", ". . ."])
+        assert board.contains(Position(2, 2)) is True
+
+    def test_does_not_contain_row_past_the_bottom_edge(self):
+        board = TextBoard(["wK . .", ". . .", ". . ."])
+        assert board.contains(Position(3, 0)) is False
+
+    def test_does_not_contain_col_past_the_right_edge(self):
+        board = TextBoard(["wK . .", ". . .", ". . ."])
+        assert board.contains(Position(0, 3)) is False
+
+    def test_does_not_contain_negative_row(self):
+        board = TextBoard(["wK . .", ". . .", ". . ."])
+        assert board.contains(Position(-1, 0)) is False
+
+    def test_does_not_contain_negative_col(self):
+        board = TextBoard(["wK . .", ". . .", ". . ."])
+        assert board.contains(Position(0, -1)) is False
+
     # --- move_piece ---------------------------------------------------------
 
     def test_move_piece_across_rows(self):

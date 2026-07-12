@@ -183,13 +183,6 @@ class TestJumpLandsSafely:
 
 
 class TestAirborneCapture:
-    """Jump-interception is exclusively an attempt_move/tick() (the older,
-    queued real-time pipeline) concept — try_move (what handle_click uses
-    now) has no notion of airborne pieces, so an attacker arriving at an
-    airborne cell via a click would just capture it normally, defeating
-    the whole point of the test. These tests drive the attacking move via
-    attempt_move() directly; handle_jump() is unaffected either way."""
-
     def _engine(self) -> GameEngine:
         board = TextBoard([". . .", "wK bR .", ". . ."])
         return GameEngine(board, cell_size=100, move_duration=1000, jump_duration=1000)
@@ -197,7 +190,8 @@ class TestAirborneCapture:
     def test_arriving_enemy_is_removed_defender_stays(self):
         engine = self._engine()
         engine.handle_jump(50, 150)    # wK airborne at (1,0)
-        engine.attempt_move(Position(1, 1), Position(1, 0))  # bR attacks airborne wK
+        engine.handle_click(150, 150)  # select bR
+        engine.handle_click(50, 150)   # queue bR -> (1,0), attacking airborne wK
         engine.tick(1000)
         assert engine.board.get_piece_at(Position(1, 0)) == "wK"
         assert engine.board.get_piece_at(Position(1, 1)) == "."
@@ -207,7 +201,8 @@ class TestAirborneCapture:
         obs = _RecordingObserver()
         engine.add_observer(obs)
         engine.handle_jump(50, 150)
-        engine.attempt_move(Position(1, 1), Position(1, 0))
+        engine.handle_click(150, 150)
+        engine.handle_click(50, 150)
         engine.tick(1000)
         captures = obs.of_type(AirborneCaptureEvent)
         assert len(captures) == 1
@@ -219,7 +214,8 @@ class TestAirborneCapture:
     def test_defender_still_grounds_normally_after_winning(self):
         engine = self._engine()
         engine.handle_jump(50, 150)
-        engine.attempt_move(Position(1, 1), Position(1, 0))
+        engine.handle_click(150, 150)
+        engine.handle_click(50, 150)
         engine.tick(1000)  # attacker arrives AND land_time both hit at t=1000
         assert engine.is_airborne(Position(1, 0)) is False
         engine.handle_click(50, 150)
@@ -231,21 +227,22 @@ class TestAirborneCapture:
         after move resolution) — the attacker loses."""
         engine = self._engine()
         engine.handle_jump(50, 150)    # land_time = 1000
-        engine.attempt_move(Position(1, 1), Position(1, 0))  # arrival_time = 1000
+        engine.handle_click(150, 150)
+        engine.handle_click(50, 150)   # arrival_time = 1000
         engine.tick(1000)
         assert engine.board.get_piece_at(Position(1, 0)) == "wK"
 
     def test_friendly_arrival_at_airborne_cell_is_rejected_not_captured(self):
         """A same-colour piece trying to land on an airborne friendly is
         blocked by the ordinary friendly-fire rule — no special jump
-        interaction needed. True for both pathways (RuleEngine and
-        MoveValidator both reject friendly-fire), so this one still
-        works driven through a click."""
+        interaction needed."""
         board = TextBoard([". . .", "wK wR .", ". . ."])
         engine = GameEngine(board, cell_size=100, move_duration=1000)
         engine.handle_jump(50, 150)    # wK airborne
         engine.handle_click(150, 150)  # select wR
-        engine.handle_click(50, 150)   # attempt to land on friendly wK — rejected instantly
+        engine.handle_click(50, 150)   # attempt to land on friendly wK — invalid
+        assert engine._pending == []
+        engine.tick(1000)
         assert engine.board.get_piece_at(Position(1, 0)) == "wK"
         assert engine.board.get_piece_at(Position(1, 1)) == "wR"
 
@@ -255,25 +252,28 @@ class TestAirborneCapture:
         board = TextBoard(["bR . .", "wK . .", "bR . ."])
         engine = GameEngine(board, cell_size=100, move_duration=1000, jump_duration=1000)
         engine.handle_jump(0, 100)     # wK airborne at (1,0)
-        engine.attempt_move(Position(0, 0), Position(1, 0))  # bR #1, 1 cell
-        engine.attempt_move(Position(2, 0), Position(1, 0))  # bR #2, 1 cell
+        engine.handle_click(0, 0)      # select bR at (0,0)
+        engine.handle_click(0, 100)    # queue bR -> (1,0), 1 cell
+        engine.handle_click(0, 200)    # select bR at (2,0)
+        engine.handle_click(0, 100)    # queue bR -> (1,0), 1 cell
         engine.tick(1000)
         assert engine.board.get_piece_at(Position(1, 0)) == "wK"
         assert engine.board.get_piece_at(Position(0, 0)) == "."
         assert engine.board.get_piece_at(Position(2, 0)) == "."
 
     def test_jump_too_late_after_move_already_landed_captures_normally(self):
-        """A click-driven capture now applies instantly (try_move), so
-        by the time the jump command runs the attacker has already
-        landed — the jump command simply jumps the survivor.
+        """If the attacking move has already resolved (piece already
+        landed on the target square) BEFORE the jump command, the jump
+        command targets an already-captured piece and is a no-op.
 
         Uses a Knight rather than a King so the capture doesn't end the
         game (see TestAirborneCaptureEndsGameViaKing for that scenario).
         """
         board = TextBoard([". . .", "wN bR .", ". . ."])
-        engine = GameEngine(board, cell_size=100)
+        engine = GameEngine(board, cell_size=100, move_duration=1000)
         engine.handle_click(150, 150)  # select bR
-        engine.handle_click(50, 150)   # bR captures wN immediately
+        engine.handle_click(50, 150)   # queue bR -> (1,0), capturing wN normally
+        engine.tick(1000)              # bR captures wN — wN is now gone
         engine.handle_jump(50, 150)    # too late: (1,0) now holds bR, jumping it now
         assert engine.board.get_piece_at(Position(1, 0)) == "bR"
         assert engine._airborne[0].piece == "bR"  # jumps the survivor, not the dead wN
@@ -284,7 +284,8 @@ class TestAirborneCaptureEndsGameViaKing:
         board = TextBoard([". . .", "bR wK .", ". . bN"])
         engine = GameEngine(board, cell_size=100, move_duration=1000, jump_duration=1000)
         engine.handle_jump(0, 100)     # bR airborne at (1,0)
-        engine.attempt_move(Position(1, 1), Position(1, 0))  # wK attacks airborne bR
+        engine.handle_click(100, 100)  # select wK
+        engine.handle_click(0, 100)    # queue wK -> (1,0), attacking airborne bR
         engine.tick(1000)
         assert engine.game_over is True
         assert engine.board.get_piece_at(Position(1, 0)) == "bR"

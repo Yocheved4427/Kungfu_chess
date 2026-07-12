@@ -80,6 +80,15 @@ class AbstractBoard(ABC):
             return Color.BLACK
         return None
 
+    def contains(self, pos: Position) -> bool:
+        """Return True iff *pos* is a real cell on this board.
+
+        The single shared bounds check — callers (ClickController,
+        GameEngine.handle_jump, RuleEngine, ...) use this instead of each
+        re-deriving ``0 <= row < num_rows and 0 <= col < num_cols``.
+        """
+        return 0 <= pos.row < self.num_rows and 0 <= pos.col < self.num_cols
+
 
 # ===========================================================================
 # Concrete board

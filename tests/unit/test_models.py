@@ -1,13 +1,13 @@
 """
 Unit tests for core/models.py
 
-Scope: Color, Position, and MoveRequest in isolation.
+Scope: Color, Position, MoveRequest, and same_color in isolation.
 Verifies enum values, frozen-dataclass immutability, and equality semantics.
 """
 
 import pytest
 
-from core.models import Color, MoveRequest, Position
+from core.models import Color, MoveRequest, Position, same_color
 
 
 class TestColor:
@@ -19,6 +19,34 @@ class TestColor:
 
     def test_enum_members(self):
         assert set(Color) == {Color.WHITE, Color.BLACK}
+
+
+class TestSameColor:
+    def test_two_white_pieces_are_same_color(self):
+        assert same_color("wK", "wR") is True
+
+    def test_two_black_pieces_are_same_color(self):
+        assert same_color("bK", "bQ") is True
+
+    def test_white_and_black_are_not_same_color(self):
+        assert same_color("wK", "bK") is False
+
+    def test_none_first_argument_is_false(self):
+        assert same_color(None, "wK") is False
+
+    def test_none_second_argument_is_false(self):
+        assert same_color("wK", None) is False
+
+    def test_both_none_is_false(self):
+        assert same_color(None, None) is False
+
+    def test_empty_cell_token_never_matches_a_real_piece(self):
+        """"." starts with a different character than any real piece
+        token, so it can never be "the same colour" as one — this is
+        what lets friendly-fire checks use same_color(dest, piece)
+        directly without a separate "dest != '.'" guard."""
+        assert same_color(".", "wK") is False
+        assert same_color("wK", ".") is False
 
 
 class TestPosition:

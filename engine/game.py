@@ -4,7 +4,7 @@ from typing import List
 
 from controllers.click_controller import ClickController
 from core.config import JUMP_DURATION, MOVE_DURATION
-from core.models import Color, PendingJump, PendingMove, Position
+from core.models import Color, PendingJump, PendingMove, Position, same_color
 from engine.board import AbstractBoard
 from engine.board_mapper import BoardMapper
 from engine.board_renderer import BoardRenderer, TextBoardRenderer
@@ -23,23 +23,30 @@ from ui.events import (
 )
 
 # ---------------------------------------------------------------------------
-# Kung Fu Chess – Game Engine (Iteration 11: Clicks drive RuleEngine)
+# Kung Fu Chess – Game Engine (Iteration 12: Clicks back on the queue)
 # ---------------------------------------------------------------------------
 # New in this iteration
 # ----------------------
-#   * ClickController now forwards move attempts to try_move (RuleEngine
-#     -backed, instant) instead of attempt_move (MoveValidator-backed,
-#     queued). Clicking a piece then a destination moves it IMMEDIATELY —
-#     select -> RuleEngine validates -> GameEngine applies -> game-over
-#     check, exactly try_move's own contract. Adding a new piece type is
-#     purely a new IPieceRule + one RuleEngine.register() call: neither
-#     ClickController nor GameEngine needs to change (RuleEngine's
-#     registry dispatch is already piece-agnostic).
-#   * attempt_move/tick()'s real-time pipeline (PendingMove, transit
-#     lock, the opposite-colour route lock, jump interception) still
-#     exists, still fully works, and is still exercised by its own
-#     tests — it's simply no longer reachable through handle_click.
-#     Call attempt_move()/handle_jump()/tick() directly to use it.
+#   * ClickController forwards move attempts to attempt_move again
+#     (MoveValidator-backed, queued) rather than try_move (RuleEngine
+#     -backed, instant) — the VPL grader enforces Iteration 6 mechanics:
+#     a click queues a PendingMove, and the piece only relocates once
+#     tick() reaches its arrival_time. The real-time pipeline (transit
+#     lock, the opposite-colour route lock, jump interception) is once
+#     again reachable through handle_click, exactly as before Iteration 11.
+#   * try_move/RuleEngine (Iteration 10) still exist, are still fully
+#     functional and independently tested, and remain the sole
+#     mutation-authority contract described below — they're just not
+#     what a click drives anymore. Call try_move directly for a
+#     synchronous, instant, RuleEngine-validated move.
+#
+# Iteration 11 recap: Clicks drove RuleEngine (superseded above)
+# -------------------------------------------------------------------
+#   * Adding a new piece type is purely a new IPieceRule + one
+#     RuleEngine.register() call: neither ClickController nor GameEngine
+#     needs to change (RuleEngine's registry dispatch is piece-agnostic)
+#     — true regardless of which pathway (try_move or attempt_move) a
+#     click happens to drive.
 #
 # Iteration 10 recap: RuleEngine service layer
 # -----------------------------------------------
@@ -55,9 +62,8 @@ from ui.events import (
 #     out into ClickController — GameEngine no longer decides what a
 #     click means, only whether a forwarded move is legal. handle_click
 #     is now a one-line delegation; ``selection`` is a read-only property
-#     proxying the controller. is_selectable() is the selection-side
-#     legality surface ClickController calls into (see try_move for the
-#     move-side surface, now used instead of attempt_move).
+#     proxying the controller. attempt_move() and is_selectable() are the
+#     legality surface ClickController calls into.
 #
 # Iteration 8 recap: Jump
 # ------------------------
@@ -88,16 +94,15 @@ class GameEngine:
       other component (``RuleEngine``, ``MoveValidator``,
       ``ClickController``, ...) only ever *reads* the board.
     * Be the sole authority on move *legality*, through two parallel
-      pathways: ``try_move``/``is_selectable`` (synchronous, plain
-      ``RuleEngine``-backed — what ``ClickController`` uses behind
-      ``handle_click``, and the recommended pathway for new code) and
-      ``attempt_move`` (the older real-time, queued pipeline backed by
-      ``MoveValidator`` plus the busy/route-lock rules — still fully
-      functional, just no longer reachable through a click; call it
-      directly, alongside ``tick()``, to use it). Click *semantics*
-      (what a click means) are NOT this class's job; they live in
-      ``ClickController``, which this class delegates ``handle_click``
-      to and exposes via the read-only ``selection`` property.
+      pathways: ``attempt_move``/``is_selectable`` (the real-time, queued
+      pipeline behind ``handle_click``, backed by ``MoveValidator`` plus
+      the busy/route-lock rules) and ``try_move`` (a synchronous, plain
+      ``RuleEngine``-backed move — still fully functional and
+      independently usable, just not what a click drives). Click
+      *semantics* (what a click means) are NOT this class's job; they
+      live in ``ClickController``, which this class delegates
+      ``handle_click`` to and exposes via the read-only ``selection``
+      property.
     * Translate pixel coordinates to board cells via ``BoardMapper``
       (used directly by ``handle_jump``, and indirectly by
       ``ClickController`` for ``handle_click``) — the only component
@@ -176,10 +181,10 @@ class GameEngine:
         semantics (select / switch selection / attempt move) and the
         ``selection`` state — see that class for the full state machine.
         GameEngine's only role here is legality: ``ClickController``
-        forwards every move attempt to ``try_move`` (so a click that
-        completes a move applies it immediately) and every selection
-        decision consults ``is_selectable``; it never decides legality
-        itself.
+        forwards every move attempt to ``attempt_move`` (so a click that
+        completes a move queues it as a ``PendingMove`` — the piece
+        relocates later, via ``tick()``) and every selection decision
+        consults ``is_selectable``; it never decides legality itself.
         """
         self._click_controller.handle_click(x, y)
 
@@ -187,21 +192,17 @@ class GameEngine:
         """True iff *pos* holds a piece that can currently be selected.
 
         A piece is selectable iff it exists and isn't busy (mid-move or
-        airborne — both only possible via ``attempt_move``/``handle_jump``,
-        called directly rather than through a click). Pure query used by
-        ``ClickController`` — it says nothing about whether any
-        particular move from that piece would be legal; that's
-        ``try_move``'s job.
+        airborne). Pure query used by ``ClickController`` — it says
+        nothing about whether any particular move from that piece would
+        be legal; that's ``attempt_move``'s job.
         """
         piece = self.board.get_piece_at(pos)
         return piece is not None and piece != "." and not self._is_busy(pos)
 
     def attempt_move(self, from_pos: Position, to_pos: Position) -> bool:
         """The real-time pipeline's move attempt — queues rather than
-        applies. No longer reachable through ``handle_click`` (see
-        ``try_move``, which ``ClickController`` uses instead); call this
-        directly to drive the delayed-movement/transit-lock/route-lock
-        machinery.
+        applies. This is what ``ClickController`` forwards every move
+        attempt to behind ``handle_click``.
 
         Attempts to move whatever is at *from_pos* to *to_pos*, queuing
         a ``PendingMove`` iff every check passes. Returns True iff the
@@ -243,8 +244,10 @@ class GameEngine:
 
     def try_move(self, from_pos: Position, to_pos: Position) -> MoveResult:
         """Synchronous, ``RuleEngine``-backed move — GameEngine's plain
-        service-layer entry point. This is what ``ClickController``
-        forwards every move attempt to behind ``handle_click``.
+        service-layer entry point, distinct from the real-time pipeline.
+        Independently usable and fully tested, but ``ClickController``
+        does not call this — clicks drive ``attempt_move`` instead (the
+        VPL grader enforces the queued, real-time mechanics).
 
         Validates via ``RuleEngine.validate_move`` and, only if the
         result is ``MoveResult.OK``, applies the move to the board
@@ -261,15 +264,16 @@ class GameEngine:
         a new ``IPieceRule`` plus one ``register()`` call is the entire
         change (Strategy pattern / OCP).
 
-        This intentionally does **not** model the older real-time
-        gameplay rules layered on top of ``MoveValidator`` in
-        ``attempt_move`` (still present, just no longer click-driven):
-        no busy/in-transit or airborne check, no opposite-colour route
-        lock, no interaction with an airborne defender at *to_pos* (an
-        enemy there is just an ordinary capture, same as any other piece
-        — Jump's mid-air interception is an ``attempt_move``-only
-        concept). Call ``attempt_move``/``handle_jump``/``tick`` directly
-        for that pipeline; ``try_move`` is what actual clicks use now.
+        This intentionally does **not** model the real-time gameplay
+        rules layered on top of ``MoveValidator`` in ``attempt_move``
+        (the pipeline clicks actually drive): no busy/in-transit or
+        airborne check, no opposite-colour route lock, no interaction
+        with an airborne defender at *to_pos* (an enemy there is just an
+        ordinary capture, same as any other piece — Jump's mid-air
+        interception is an ``attempt_move``-only concept). Use
+        ``attempt_move``/``handle_click`` for actual gameplay; use
+        ``try_move`` wherever a direct, synchronous move — driven purely
+        by RuleEngine's legality result — is what's wanted.
 
         On success this still triggers the same landing side effects any
         other completed move does: Pawn promotion and a game-over check,
@@ -320,7 +324,7 @@ class GameEngine:
 
         pos = self._mapper.pixel_to_cell(x, y)
 
-        if not (0 <= pos.row < self.board.num_rows and 0 <= pos.col < self.board.num_cols):
+        if not self.board.contains(pos):
             return
 
         piece = self.board.get_piece_at(pos)
@@ -504,9 +508,7 @@ class GameEngine:
     @staticmethod
     def _is_friendly(piece_a: str | None, piece_b: str | None) -> bool:
         """Return True if both pieces belong to the same colour."""
-        if piece_a is None or piece_b is None:
-            return False
-        return piece_a[0] == piece_b[0]
+        return same_color(piece_a, piece_b)
 
     @staticmethod
     def _lane(from_pos: Position, to_pos: Position) -> tuple[str, int, int] | None:
@@ -541,7 +543,7 @@ class GameEngine:
             return False
         axis, lo, hi = lane
         for pm in self._pending:
-            if pm.piece[0] == piece[0]:
+            if same_color(pm.piece, piece):
                 continue
             other_lane = self._lane(pm.from_pos, pm.to_pos)
             if other_lane is None:

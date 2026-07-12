@@ -27,12 +27,13 @@ class TestTwoStepAdvanceViaEngine:
     def test_white_two_step_from_start_row_is_queued_and_executes(self):
         # 5 rows: White's start row (the edge it advances away from) is
         # num_rows - 1 = 4; lands on row 2, which is NOT the back rank
-        # (row 0) — isolated from promotion. handle_click now applies
-        # instantly via try_move — no queueing/ticking needed.
+        # (row 0) — isolated from promotion.
         board = TextBoard([". .", ". .", ". .", ". .", "wP ."])
-        engine = GameEngine(board, cell_size=100)
+        engine = GameEngine(board, cell_size=100, move_duration=500)
         engine.handle_click(0, 400)  # select wP at (4,0)
-        engine.handle_click(0, 200)  # two-step to (2,0) — applies now
+        engine.handle_click(0, 200)  # two-step to (2,0)
+        assert len(engine._pending) == 1
+        engine.tick(1000)  # Chebyshev distance 2 * 500ms
         assert engine.board.get_piece_at(Position(2, 0)) == "wP"
         assert engine.board.get_piece_at(Position(4, 0)) == "."
 
@@ -66,20 +67,17 @@ class TestTwoStepAdvanceViaEngine:
         """Legal when queued (path clear), but a piece lands in the
         intermediate square before arrival — the premove must be dropped,
         same as any other sliding-style premove (see
-        test_realtime_conflicts.py::TestInvalidPremoves).
-
-        This re-validate-at-arrival behaviour is specific to the queued
-        attempt_move/tick() pipeline (try_move applies instantly, so
-        there's no "premove" window for anything to invalidate) — both
-        moves are driven via attempt_move directly."""
-        board = TextBoard([". . .", ". . .", ". bK .", "wP . ."])
+        test_realtime_conflicts.py::TestInvalidPremoves)."""
+        board = TextBoard([". . .", ". bK .", "wP . .", ". . ."])
         engine = GameEngine(board, cell_size=100, move_duration=500)
-        engine.attempt_move(Position(3, 0), Position(1, 0))  # two-step, path clear now
-        engine.attempt_move(Position(2, 1), Position(2, 0))  # bK, 1 cell, arrives first
+        engine.handle_click(0, 200)    # select wP at (2,0)
+        engine.handle_click(0, 0)      # queue two-step to (0,0), path clear now
+        engine.handle_click(100, 100)  # select bK at (1,1)
+        engine.handle_click(0, 100)    # queue bK -> (1,0), 1 cell, arrives first
         engine.tick(1000)
-        assert engine.board.get_piece_at(Position(3, 0)) == "wP"  # never moved
-        assert engine.board.get_piece_at(Position(2, 0)) == "bK"
-        assert engine.board.get_piece_at(Position(1, 0)) == "."
+        assert engine.board.get_piece_at(Position(2, 0)) == "wP"  # never moved
+        assert engine.board.get_piece_at(Position(1, 0)) == "bK"
+        assert engine.board.get_piece_at(Position(0, 0)) == "."
 
     def test_one_step_move_still_works_after_two_step_feature_added(self):
         # wP moves from the bottom row to the middle row — not the back
@@ -125,18 +123,17 @@ class TestPromotion:
 
     def test_promoted_queen_moves_like_a_queen_immediately(self):
         """No cooldown: the very next click can move the new Queen using
-        Queen rules (e.g. a long diagonal a Pawn could never make).
-        handle_click applies instantly now, so promotion and the
-        follow-up move both happen without any tick()."""
+        Queen rules (e.g. a long diagonal a Pawn could never make)."""
         board = TextBoard([". . .", "wP . .", ". . ."])
-        engine = GameEngine(board, cell_size=100)
+        engine = GameEngine(board, cell_size=100, move_duration=500)
         engine.handle_click(0, 100)    # select wP at (1,0)
-        engine.handle_click(0, 0)      # forward to (0,0) — promotes to wQ now
+        engine.handle_click(0, 0)      # forward to (0,0), promotes to wQ
+        engine.tick(500)
         assert engine.board.get_piece_at(Position(0, 0)) == "wQ"
         engine.handle_click(0, 0)      # select the new wQ
-        engine.handle_click(200, 200)  # long diagonal — legal for a Queen, applies now
-        assert engine.board.get_piece_at(Position(2, 2)) == "wQ"
-        assert engine.board.get_piece_at(Position(0, 0)) == "."
+        engine.handle_click(200, 200)  # long diagonal — legal for a Queen
+        assert len(engine._pending) == 1
+        assert engine._pending[0].piece == "wQ"
 
     def test_non_back_rank_arrival_does_not_promote(self):
         board = TextBoard([". .", ". .", "wP ."])
