@@ -4,7 +4,9 @@ Unit tests for the transit-lock feature (Kungfu Chess).
 A piece that is mid-movement (its PendingMove has not yet arrived) must:
   - be impossible to select.
   - be impossible to redirect, even via a friendly re-selection.
-  - become freely movable again the instant it arrives (no cooldown).
+  - leave transit (``is_in_transit`` False) the instant it arrives, but
+    then sit in a cooldown window (``COOLDOWN_DURATION``, see
+    test_cooldown.py) before it can be selected or moved again.
 
 Board used in most tests (3×3, cell_size=100):
     row 0: "wK . ."
@@ -116,24 +118,42 @@ class TestCannotRedirectInTransit:
 
 
 # ===========================================================================
-# No cooldown after arrival
+# Cooldown after arrival
 # ===========================================================================
 
-class TestNoCooldownAfterArrival:
-    def test_piece_selectable_immediately_after_arrival(self):
+class TestCooldownAfterArrival:
+    def test_piece_not_selectable_immediately_after_arrival(self):
         engine = _engine_3x3()
         engine.handle_click(0, 0)
         engine.handle_click(100, 0)  # queue: wK → (0,1), arrives at 500 ms
-        engine.tick(500)             # move executes
-        engine.handle_click(100, 0)  # select wK at its new position (0,1)
+        engine.tick(500)             # move executes; cooldown until 1500 ms
+        engine.handle_click(100, 0)  # attempt to select wK at its new position
+        assert engine.selection is None
+
+    def test_piece_selectable_once_cooldown_elapses(self):
+        engine = _engine_3x3()
+        engine.handle_click(0, 0)
+        engine.handle_click(100, 0)  # arrives at 500 ms, cooldown until 1500 ms
+        engine.tick(500)             # clock = 500 — move lands, cooldown starts
+        engine.tick(1000)            # clock = 1500, cooldown just elapsed
+        engine.handle_click(100, 0)  # select wK at (0,1)
         assert engine.selection == Position(0, 1)
 
-    def test_move_queueable_immediately_after_arrival(self):
+    def test_move_not_queueable_during_cooldown(self):
         engine = _engine_3x3()
         engine.handle_click(0, 0)
         engine.handle_click(100, 0)  # wK → (0,1), arrives at 500 ms
-        engine.tick(500)
-        # Immediately queue a new move — no extra wait required
+        engine.tick(500)             # cooldown until 1500 ms
+        engine.handle_click(100, 0)  # attempt select — blocked by cooldown
+        engine.handle_click(200, 0)  # attempt move — ignored, nothing selected
+        assert engine._pending == []
+
+    def test_move_queueable_once_cooldown_elapses(self):
+        engine = _engine_3x3()
+        engine.handle_click(0, 0)
+        engine.handle_click(100, 0)  # wK → (0,1), arrives at 500 ms
+        engine.tick(500)             # clock = 500 — move lands, cooldown starts
+        engine.tick(1000)            # clock = 1500, cooldown just elapsed
         engine.handle_click(100, 0)  # select wK at (0,1)
         engine.handle_click(200, 0)  # move to (0,2)
         assert len(engine._pending) == 1
@@ -141,11 +161,15 @@ class TestNoCooldownAfterArrival:
         assert engine._pending[0].to_pos == Position(0, 2)
 
     def test_arrival_exactly_on_tick_is_not_in_transit(self):
+        """Transit lock and cooldown are separate mechanisms: transit lifts
+        the instant the move lands, even though cooldown then keeps the
+        piece unselectable for a further COOLDOWN_DURATION ms."""
         engine = _engine_3x3()
         engine.handle_click(0, 0)
         engine.handle_click(100, 0)  # arrives at 500 ms
         engine.tick(500)
         assert engine.is_in_transit(Position(0, 1)) is False
+        assert engine.is_in_cooldown(Position(0, 1)) is True
 
 
 # ===========================================================================
@@ -233,32 +257,39 @@ class TestRedirectLockScenarios:
         assert engine._pending[0].to_pos == Position(0, 1)
 
     # ------------------------------------------------------------------
-    # 2. Piece arrives → immediately accepts a new move, no cooldown
+    # 2. Piece arrives → blocked by cooldown, then accepts a new move
+    #    once the cooldown elapses
     # ------------------------------------------------------------------
 
-    def test_new_move_accepted_on_same_tick_as_arrival(self):
-        """After tick() executes the arriving move the piece must be
-        selectable and movable in the very next handle_click — same clock
-        value, no extra wait."""
+    def test_new_move_rejected_on_same_tick_as_arrival_then_accepted_after_cooldown(self):
+        """Right after tick() executes the arriving move, the piece is
+        still cooling down and a new move must be rejected; once
+        COOLDOWN_DURATION more ms pass, the same move is accepted."""
         engine = _engine_3x3()
         # wK (0,0) → (0,1), arrives at t=500.
         engine.handle_click(0, 0)
         engine.handle_click(100, 0)
-        engine.tick(500)  # move executes; clock = 500
+        engine.tick(500)  # move executes; clock = 500, cooldown until 1500
 
-        # Select and move the piece immediately (clock still at 500).
+        # Attempt to select and move the piece immediately (clock still 500).
+        engine.handle_click(100, 0)  # select — blocked by cooldown
+        engine.handle_click(200, 0)  # move — ignored, nothing was selected
+        assert engine._pending == []
+
+        engine.tick(1000)  # clock = 1500, cooldown just elapsed
         engine.handle_click(100, 0)  # select wK at (0,1)
         engine.handle_click(200, 0)  # move to (0,2)
 
         assert len(engine._pending) == 1
         assert engine._pending[0].from_pos == Position(0, 1)
         assert engine._pending[0].to_pos == Position(0, 2)
-        # arrival_time of the new move must be relative to current clock (500).
-        assert engine._pending[0].arrival_time == 1000  # 500 + 1 cell * 500 ms
+        # arrival_time of the new move must be relative to current clock (1500).
+        assert engine._pending[0].arrival_time == 2000  # 1500 + 1 cell * 500 ms
 
-    def test_piece_not_in_transit_after_arrival_allows_selection(self):
-        """is_in_transit must be False right after the arriving tick so the
-        engine's selection guard does not block the piece."""
+    def test_piece_not_in_transit_after_arrival_but_still_in_cooldown(self):
+        """is_in_transit must be False right after the arriving tick — the
+        transit lock and the cooldown are independent guards, and only
+        the latter still blocks selection at this point."""
         engine = _engine_3x3()
         engine.handle_click(0, 0)
         engine.handle_click(100, 0)  # arrives at t=500
@@ -266,7 +297,7 @@ class TestRedirectLockScenarios:
 
         assert engine.is_in_transit(Position(0, 1)) is False
         engine.handle_click(100, 0)
-        assert engine.selection == Position(0, 1)
+        assert engine.selection is None  # still blocked by cooldown
 
     # ------------------------------------------------------------------
     # 3. Edge case: redirect sent at the exact tick of arrival
@@ -286,14 +317,15 @@ class TestRedirectLockScenarios:
         assert len(engine._pending) == 1
         assert engine._pending[0].to_pos == Position(0, 1)
 
-    def test_move_command_accepted_after_tick_that_executes_arrival(self):
-        """tick(arrival_time) executes the move.  The very next handle_click
-        after that tick must be able to queue a new move."""
+    def test_move_command_accepted_after_tick_that_executes_arrival_and_cooldown(self):
+        """tick(arrival_time) executes the move.  Once COOLDOWN_DURATION
+        more ms have passed, handle_click can queue a new move."""
         engine = _engine_3x3()
         engine.handle_click(0, 0)
         engine.handle_click(100, 0)  # arrival_time = 500
         engine.tick(499)             # one ms before — piece still in transit
         engine.tick(1)               # arrival tick — move executes (clock = 500)
+        engine.tick(1000)            # clock = 1500 — cooldown (500-1500) elapsed
 
         engine.handle_click(100, 0)  # select wK at new pos (0,1)
         engine.handle_click(200, 0)  # move to (0,2)

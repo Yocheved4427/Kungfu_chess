@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import List
+from typing import Dict, List
 
 from controllers.click_controller import ClickController
-from core.config import JUMP_DURATION, MOVE_DURATION
+from core.config import COOLDOWN_DURATION, JUMP_DURATION, MOVE_DURATION
 from core.models import Color, PendingJump, PendingMove, Position, same_color
 from engine.board import AbstractBoard
 from engine.board_mapper import BoardMapper
@@ -124,12 +124,15 @@ class GameEngine:
         renderer: BoardRenderer | None = None,
         mapper: BoardMapper | None = None,
         rule_engine: RuleEngine | None = None,
+        cooldown_duration: int = COOLDOWN_DURATION,
     ) -> None:
         self.board: AbstractBoard = board
         self.current_time: int = 0
         self._mapper: BoardMapper = mapper if mapper is not None else BoardMapper(cell_size)
         self._move_duration: int = move_duration
         self._jump_duration: int = jump_duration
+        self._cooldown_duration: int = cooldown_duration
+        self._cooldowns: Dict[Position, int] = {}
         self._validator: MoveValidator = (
             validator if validator is not None else MoveValidator()
         )
@@ -192,8 +195,9 @@ class GameEngine:
     def is_selectable(self, pos: Position) -> bool:
         """True iff *pos* holds a piece that can currently be selected.
 
-        A piece is selectable iff it exists and isn't busy (mid-move or
-        airborne). Pure query used by ``ClickController`` — it says
+        A piece is selectable iff it exists and isn't busy (mid-move,
+        airborne, or cooling down from its last landing). Pure query
+        used by ``ClickController`` — it says
         nothing about whether any particular move from that piece would
         be legal; that's ``attempt_move``'s job.
         """
@@ -211,8 +215,8 @@ class GameEngine:
         ``tick`` reaches its ``arrival_time``. Checks, in order:
 
         * The game isn't over.
-        * A piece actually sits at *from_pos* and isn't busy (mid-move
-          or airborne).
+        * A piece actually sits at *from_pos* and isn't busy (mid-move,
+          airborne, or cooling down from its last landing).
         * ``MoveValidator`` approves the shape/destination/path.
         * The move doesn't violate the opposite-colour route lock.
         """
@@ -414,6 +418,7 @@ class GameEngine:
                 if stop_pos != pm.from_pos:
                     self.board.move_piece(pm.from_pos, stop_pos)
                     self._maybe_promote(pm.piece, stop_pos)
+                    self._set_cooldown(stop_pos)
                     self._notify(
                         MoveCompletedEvent(
                             piece=pm.piece,
@@ -443,6 +448,7 @@ class GameEngine:
 
             self.board.move_piece(pm.from_pos, pm.to_pos)
             self._maybe_promote(pm.piece, pm.to_pos)
+            self._set_cooldown(pm.to_pos)
             self._notify(
                 MoveCompletedEvent(
                     piece=pm.piece,
@@ -458,6 +464,7 @@ class GameEngine:
             (grounded if pj.land_time <= self.current_time else still_airborne).append(pj)
         self._airborne = still_airborne
         for pj in grounded:
+            self._set_cooldown(pj.pos)
             self._notify(JumpLandedEvent(piece=pj.piece, pos=pj.pos, land_time=pj.land_time))
 
         self._check_game_over()
@@ -486,15 +493,30 @@ class GameEngine:
         """Return True if the piece at *pos* is currently mid-jump."""
         return self._airborne_at(pos) is not None
 
+    def is_in_cooldown(self, pos: Position) -> bool:
+        """Return True if *pos* is still cooling down after a landing.
+
+        Set whenever a move (full arrival or a friendly-block stop-short)
+        or a jump lands on *pos* — see ``_set_cooldown``. Expires on its
+        own once ``current_time`` passes the stored expiry; no explicit
+        cleanup is needed."""
+        expiry = self._cooldowns.get(pos)
+        return expiry is not None and expiry > self.current_time
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
     def _is_busy(self, pos: Position) -> bool:
         """Return True if the piece at *pos* is committed to another
-        action — already moving, or already airborne — and so cannot be
-        selected, redirected, or jumped again."""
-        return self.is_in_transit(pos) or self.is_airborne(pos)
+        action — already moving, already airborne, or still cooling down
+        from its last landing — and so cannot be selected, redirected, or
+        jumped again."""
+        return self.is_in_transit(pos) or self.is_airborne(pos) or self.is_in_cooldown(pos)
+
+    def _set_cooldown(self, pos: Position) -> None:
+        """Start (or restart) *pos*'s cooldown window from the current time."""
+        self._cooldowns[pos] = self.current_time + self._cooldown_duration
 
     def _airborne_at(self, pos: Position) -> PendingJump | None:
         """Return the active ``PendingJump`` at *pos*, if any."""

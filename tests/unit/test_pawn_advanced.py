@@ -121,15 +121,18 @@ class TestPromotion:
         engine.tick(500)
         assert engine.board.get_piece_at(Position(0, 1)) == "wQ"
 
-    def test_promoted_queen_moves_like_a_queen_immediately(self):
-        """No cooldown: the very next click can move the new Queen using
-        Queen rules (e.g. a long diagonal a Pawn could never make)."""
+    def test_promoted_queen_moves_like_a_queen_once_cooldown_elapses(self):
+        """Once the post-landing cooldown (see test_cooldown.py) elapses,
+        the new Queen can be moved using Queen rules (e.g. a long diagonal
+        a Pawn could never make) — promotion doesn't grant any special
+        cooldown exemption or extra restriction."""
         board = TextBoard([". . .", "wP . .", ". . ."])
         engine = GameEngine(board, cell_size=100, move_duration=500)
         engine.handle_click(0, 100)    # select wP at (1,0)
         engine.handle_click(0, 0)      # forward to (0,0), promotes to wQ
-        engine.tick(500)
+        engine.tick(500)               # lands + promotes; cooldown until 1500
         assert engine.board.get_piece_at(Position(0, 0)) == "wQ"
+        engine.tick(1000)              # clock = 1500, cooldown just elapsed
         engine.handle_click(0, 0)      # select the new wQ
         engine.handle_click(200, 200)  # long diagonal — legal for a Queen
         assert len(engine._pending) == 1

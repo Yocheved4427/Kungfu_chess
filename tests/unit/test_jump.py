@@ -173,11 +173,23 @@ class TestJumpLandsSafely:
         engine.tick(999)
         assert engine.is_airborne(Position(1, 1)) is True
 
-    def test_piece_selectable_again_immediately_after_landing(self):
+    def test_piece_not_selectable_immediately_after_landing(self):
+        """Landing clears the airborne state but starts a cooldown window
+        (see test_cooldown.py) — the piece is not selectable until that
+        window elapses."""
         board = TextBoard([". . .", ". wK .", ". . ."])
         engine = GameEngine(board, cell_size=100, jump_duration=1000)
         engine.handle_jump(150, 150)
-        engine.tick(1000)
+        engine.tick(1000)  # lands at t=1000, cooldown until t=2000
+        engine.handle_click(150, 150)
+        assert engine.selection is None
+
+    def test_piece_selectable_once_cooldown_elapses_after_landing(self):
+        board = TextBoard([". . .", ". wK .", ". . ."])
+        engine = GameEngine(board, cell_size=100, jump_duration=1000)
+        engine.handle_jump(150, 150)
+        engine.tick(1000)  # lands at t=1000, cooldown until t=2000
+        engine.tick(1000)  # clock = 2000, cooldown just elapsed
         engine.handle_click(150, 150)
         assert engine.selection == Position(1, 1)
 
@@ -218,6 +230,7 @@ class TestAirborneCapture:
         engine.handle_click(50, 150)
         engine.tick(1000)  # attacker arrives AND land_time both hit at t=1000
         assert engine.is_airborne(Position(1, 0)) is False
+        engine.tick(1000)  # clock = 2000, landing cooldown just elapsed
         engine.handle_click(50, 150)
         assert engine.selection == Position(1, 0)
 
@@ -274,6 +287,7 @@ class TestAirborneCapture:
         engine.handle_click(150, 150)  # select bR
         engine.handle_click(50, 150)   # queue bR -> (1,0), capturing wN normally
         engine.tick(1000)              # bR captures wN — wN is now gone
+        engine.tick(1000)              # clock = 2000, landing cooldown elapsed
         engine.handle_jump(50, 150)    # too late: (1,0) now holds bR, jumping it now
         assert engine.board.get_piece_at(Position(1, 0)) == "bR"
         assert engine._airborne[0].piece == "bR"  # jumps the survivor, not the dead wN

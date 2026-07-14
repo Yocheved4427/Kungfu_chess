@@ -25,3 +25,6 @@ MOVE_DURATION: int = 1000
 
 # Duration (ms) a jump keeps its piece airborne, defending its own cell.
 JUMP_DURATION: int = 1000
+
+# Duration (ms) a piece is unselectable after landing from a move or jump.
+COOLDOWN_DURATION: int = 1000
