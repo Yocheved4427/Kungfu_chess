@@ -8,8 +8,8 @@ from core.models import Color, PendingJump, PendingMove, Position, same_color
 from engine.board import AbstractBoard
 from engine.board_mapper import BoardMapper
 from engine.board_renderer import BoardRenderer, TextBoardRenderer
+from engine.collision_resolver import CollisionResolver
 from engine.game_over import GameOverRule, KingCaptureRule
-from engine.geometry import is_diagonal, is_orthogonal
 from engine.rule_engine import MoveResult, RuleEngine
 from engine.rules import MoveValidator
 from ui.events import (
@@ -24,10 +24,21 @@ from ui.events import (
 )
 
 # ---------------------------------------------------------------------------
-# Kung Fu Chess – Game Engine (Iteration 12: Clicks back on the queue)
+# Kung Fu Chess – Game Engine (Iteration 13: Collision resolution extracted)
 # ---------------------------------------------------------------------------
 # New in this iteration
 # ----------------------
+#   * tick()'s collision-decision logic — friendly mid-route blocking and
+#     airborne-enemy interception — moved out into ``CollisionResolver``
+#     (SRP). tick() now only orchestrates: advance the clock, partition
+#     due moves, delegate each one to ``_resolve_due_move``, resolve
+#     jump landings, check game-over, notify. ``_resolve_due_move`` still
+#     does all board mutation and event notification itself — GameEngine
+#     remains the sole board mutator and the only Subject; the resolver
+#     only decides, stateless, same idiom as MoveValidator/RuleEngine.
+#
+# Iteration 12 recap: Clicks back on the queue
+# -------------------------------------------------------------------
 #   * ClickController forwards move attempts to attempt_move again
 #     (MoveValidator-backed, queued) rather than try_move (RuleEngine
 #     -backed, instant) — the VPL grader enforces Iteration 6 mechanics:
@@ -125,6 +136,7 @@ class GameEngine:
         mapper: BoardMapper | None = None,
         rule_engine: RuleEngine | None = None,
         cooldown_duration: int = COOLDOWN_DURATION,
+        collision_resolver: CollisionResolver | None = None,
     ) -> None:
         self.board: AbstractBoard = board
         self.current_time: int = 0
@@ -144,6 +156,9 @@ class GameEngine:
         )
         self._renderer: BoardRenderer = (
             renderer if renderer is not None else TextBoardRenderer()
+        )
+        self._collision_resolver: CollisionResolver = (
+            collision_resolver if collision_resolver is not None else CollisionResolver()
         )
         self._pending: List[PendingMove] = []
         self._airborne: List[PendingJump] = []
@@ -350,31 +365,10 @@ class GameEngine:
 
         After updating ``current_time``, all pending moves whose
         ``arrival_time <= current_time`` are executed in chronological
-        order (earliest ``arrival_time`` first; ties keep queue order).
-        Each move is re-validated against the *current* board — not just
-        the state at the moment it was queued — before it is applied:
-
-        * The origin must still hold the same piece (it wasn't captured,
-          or hasn't already been moved/re-executed).
-        * For a straight-line, multi-cell move (orthogonal or diagonal),
-          if a FRIENDLY piece now sits somewhere strictly between origin
-          and destination, the mover doesn't get dropped outright — it
-          stops on the last clear square before that piece instead (see
-          ``_stop_before_friendly_block``). An ENEMY piece blocking the
-          same way is a different case: the whole move is dropped, same
-          as always — see the next bullet.
-        * Otherwise, the move must still be legal (``MoveValidator.is_valid``),
-          which re-checks the destination content (friendly-piece landing is
-          rejected, an enemy piece there is still a legal capture) and,
-          for sliding pieces, that the path is still clear (a piece that
-          moved into the path since queuing blocks it).
-        * If the destination is an *airborne enemy*'s cell, the jump wins:
-          the defender never moves and the arriving piece is removed
-          outright (``AirborneCaptureEvent``) instead of relocating there
-          (no ``MoveCompletedEvent`` for it). A friendly arrival was
-          already rejected above by the ordinary friendly-fire check —
-          the airborne piece is still physically on the board the whole
-          time, so that check sees it like any other occupant.
+        order (earliest ``arrival_time`` first; ties keep queue order) —
+        see ``_resolve_due_move`` for how each one is decided; the
+        friendly-mid-route-block and airborne-interception logic it
+        leans on lives in ``CollisionResolver``, not here.
 
         Because earlier-arriving moves in the same tick are applied first,
         a later move's re-validation sees their results — e.g. two pieces
@@ -384,10 +378,6 @@ class GameEngine:
         An airborne defender can defeat multiple arrivals in the same
         tick this way — it never leaves its cell, so each subsequent
         arrival still finds it there.
-
-        A rejected move is simply dropped (no event, no retry) — it does
-        not go back on the pending queue. For each move actually applied a
-        ``MoveCompletedEvent`` is fired.
 
         Finally, jumps are resolved: any ``PendingJump`` whose
         ``land_time <= current_time`` grounds (``JumpLandedEvent``) —
@@ -405,58 +395,7 @@ class GameEngine:
         due.sort(key=lambda pm: pm.arrival_time)
 
         for pm in due:
-            # Guard: the piece must still be at its origin...
-            if self.board.get_piece_at(pm.from_pos) != pm.piece:
-                continue
-
-            # A friendly piece now blocking the route stops the mover
-            # short instead of dropping the whole move — an enemy
-            # blocking the same way is handled by the ordinary path-clear
-            # check inside is_valid() below (whole move dropped, as always).
-            stop_pos = self._stop_before_friendly_block(pm)
-            if stop_pos is not None:
-                if stop_pos != pm.from_pos:
-                    self.board.move_piece(pm.from_pos, stop_pos)
-                    self._maybe_promote(pm.piece, stop_pos)
-                    self._set_cooldown(stop_pos)
-                    self._notify(
-                        MoveCompletedEvent(
-                            piece=pm.piece,
-                            from_pos=pm.from_pos,
-                            to_pos=stop_pos,
-                            arrival_time=pm.arrival_time,
-                        )
-                    )
-                continue
-
-            # ...and the move must still be legal given the *current* board
-            # (destination / path may have changed since it was queued).
-            if not self._validator.is_valid(pm.piece, pm.from_pos, pm.to_pos, self.board):
-                continue
-
-            defender = self._airborne_at(pm.to_pos)
-            if defender is not None and defender.piece[0] != pm.piece[0]:
-                self.board.set_piece_at(pm.from_pos, ".")
-                self._notify(
-                    AirborneCaptureEvent(
-                        defender=defender.piece,
-                        pos=defender.pos,
-                        attacker=pm.piece,
-                    )
-                )
-                continue
-
-            self.board.move_piece(pm.from_pos, pm.to_pos)
-            self._maybe_promote(pm.piece, pm.to_pos)
-            self._set_cooldown(pm.to_pos)
-            self._notify(
-                MoveCompletedEvent(
-                    piece=pm.piece,
-                    from_pos=pm.from_pos,
-                    to_pos=pm.to_pos,
-                    arrival_time=pm.arrival_time,
-                )
-            )
+            self._resolve_due_move(pm)
 
         grounded: List[PendingJump] = []
         still_airborne: List[PendingJump] = []
@@ -469,6 +408,86 @@ class GameEngine:
 
         self._check_game_over()
         self._notify(TimeAdvancedEvent(current_time=self.current_time))
+
+    def _resolve_due_move(self, pm: PendingMove) -> None:
+        """Apply a single due ``PendingMove``'s outcome, deferring the
+        friendly-block and airborne-interception *decisions* to
+        ``CollisionResolver`` — this method stays the sole place that
+        mutates the board and fires events, per the class's board-
+        ownership contract.
+
+        * The origin must still hold the same piece (it wasn't captured,
+          or hasn't already been moved/re-executed) — otherwise dropped.
+        * If a FRIENDLY piece now sits somewhere strictly between origin
+          and destination (``CollisionResolver.stop_before_friendly_block``),
+          the mover stops on the last clear square before it instead of
+          being dropped outright (a no-op if that square is its own
+          origin). An ENEMY piece blocking the same way is a different
+          case: the whole move is dropped, same as always — via the
+          ordinary path-clear check inside ``MoveValidator.is_valid``.
+        * Otherwise, the move must still be legal (``MoveValidator.is_valid``),
+          which re-checks the destination content (friendly-piece landing is
+          rejected, an enemy piece there is still a legal capture) and,
+          for sliding pieces, that the path is still clear (a piece that
+          moved into the path since queuing blocks it).
+        * If the destination is an *airborne enemy*'s cell
+          (``CollisionResolver.airborne_defender``), the jump wins: the
+          defender never moves and the arriving piece is removed outright
+          (``AirborneCaptureEvent``) instead of relocating there (no
+          ``MoveCompletedEvent`` for it).
+
+        A rejected move is simply dropped (no event, no retry) — it does
+        not go back on the pending queue. For a move actually applied, a
+        ``MoveCompletedEvent`` is fired and the landing cell starts its
+        cooldown window.
+        """
+        if self.board.get_piece_at(pm.from_pos) != pm.piece:
+            return
+
+        stop_pos = self._collision_resolver.stop_before_friendly_block(pm, self.board)
+        if stop_pos is not None:
+            if stop_pos != pm.from_pos:
+                self.board.move_piece(pm.from_pos, stop_pos)
+                self._maybe_promote(pm.piece, stop_pos)
+                self._set_cooldown(stop_pos)
+                self._notify(
+                    MoveCompletedEvent(
+                        piece=pm.piece,
+                        from_pos=pm.from_pos,
+                        to_pos=stop_pos,
+                        arrival_time=pm.arrival_time,
+                    )
+                )
+            return
+
+        if not self._validator.is_valid(pm.piece, pm.from_pos, pm.to_pos, self.board):
+            return
+
+        defender = self._collision_resolver.airborne_defender(
+            pm.to_pos, pm.piece, self._airborne
+        )
+        if defender is not None:
+            self.board.set_piece_at(pm.from_pos, ".")
+            self._notify(
+                AirborneCaptureEvent(
+                    defender=defender.piece,
+                    pos=defender.pos,
+                    attacker=pm.piece,
+                )
+            )
+            return
+
+        self.board.move_piece(pm.from_pos, pm.to_pos)
+        self._maybe_promote(pm.piece, pm.to_pos)
+        self._set_cooldown(pm.to_pos)
+        self._notify(
+            MoveCompletedEvent(
+                piece=pm.piece,
+                from_pos=pm.from_pos,
+                to_pos=pm.to_pos,
+                arrival_time=pm.arrival_time,
+            )
+        )
 
     # ------------------------------------------------------------------
     # Read-only accessors
@@ -524,48 +543,6 @@ class GameEngine:
             if pj.pos == pos:
                 return pj
         return None
-
-    def _stop_before_friendly_block(self, pm: PendingMove) -> Position | None:
-        """Where a due move should stop short, if a friendly piece is now
-        blocking its route — or None if that doesn't apply.
-
-        Only meaningful for a straight-line, multi-cell move (orthogonal
-        or diagonal); anything else (a Knight's jump, a single-step move
-        with no intermediate square) returns None immediately. Walks the
-        cells strictly between ``pm.from_pos`` and ``pm.to_pos``:
-
-        * Path fully clear -> None (normal ``is_valid`` handling decides
-          the outcome, same as before this rule existed).
-        * First occupied cell holds an enemy piece -> None (an enemy
-          mid-route is still a fully-dropped premove, via the ordinary
-          path-clear check in ``MoveValidator.is_valid``).
-        * First occupied cell holds a friendly piece -> the last clear
-          cell before it (which is ``pm.from_pos`` itself if that very
-          first step is already blocked — the piece simply doesn't move).
-        """
-        from_pos, to_pos = pm.from_pos, pm.to_pos
-        if not (is_orthogonal(from_pos, to_pos) or is_diagonal(from_pos, to_pos)):
-            return None
-
-        dr = to_pos.row - from_pos.row
-        dc = to_pos.col - from_pos.col
-        steps = max(abs(dr), abs(dc))
-        if steps < 2:
-            return None  # adjacent cells have no square between them
-
-        step_r = dr // steps
-        step_c = dc // steps
-        prev = from_pos
-        r, c = from_pos.row + step_r, from_pos.col + step_c
-        while (r, c) != (to_pos.row, to_pos.col):
-            cell = Position(r, c)
-            occupant = self.board.get_piece_at(cell)
-            if occupant != ".":
-                return prev if same_color(occupant, pm.piece) else None
-            prev = cell
-            r += step_r
-            c += step_c
-        return None  # path fully clear
 
     def _maybe_promote(self, piece: str, pos: Position) -> None:
         """Promote a Pawn to a Queen the instant it reaches the back rank.
