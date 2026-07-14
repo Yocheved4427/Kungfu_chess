@@ -16,8 +16,12 @@ only arise from that gap:
   * Invalid premoves   – a move that was legal when queued (clear path,
                           piece present at origin) can become illegal by
                           the time it resolves (path blocked by an
-                          intervening arrival, or the origin piece was
-                          captured first) and must be dropped silently.
+                          *enemy* intervening arrival, or the origin piece
+                          was captured first) and must be dropped silently.
+  * Friendly mid-route  – a straight-line premove blocked partway by a
+    block                *friendly* arrival doesn't drop entirely like the
+                          enemy case above — the mover stops on the last
+                          clear square before the blocker instead.
   * Movement conflicts – due moves are applied in chronological
                           (``arrival_time``) order within a tick, not queue
                           order, so which move "gets there first" is
@@ -201,6 +205,154 @@ class TestInvalidPremoves:
         # bR captured wK at (0,0) at t=1000; wK's own move never fires.
         assert engine.board.get_piece_at(Position(0, 0)) == "bR"
         assert engine.board.get_piece_at(Position(0, 2)) == "."
+
+
+# ===========================================================================
+# Friendly mid-route block: a same-colour piece appearing partway along a
+# straight-line premove's path stops the mover short (on the last clear
+# square before the blocker) instead of dropping the whole move. An enemy
+# blocking the same way is unaffected — see TestInvalidPremoves above,
+# whose enemy-blocker scenario still drops the whole move exactly as before.
+# ===========================================================================
+
+class TestFriendlyMidRouteBlock:
+    def test_rook_stops_one_square_before_a_friendly_blocker(self):
+        """wR (0,0) -> (0,3) is queued while the path is clear (arrival
+        = 3000). A second wR (1,2) -> (0,2) is queued too (arrival =
+        1000) and lands squarely in the first rook's path before its own
+        arrival. The first rook must stop at (0,1) — the square just
+        before the blocker — not be dropped entirely."""
+        board = TextBoard(["wR . . .", ". . wR .", ". . . .", ". . . ."])
+        engine = GameEngine(board, cell_size=100, move_duration=1000)
+        engine.handle_click(0, 0)      # select first wR
+        engine.handle_click(300, 0)    # queue wR -> (0,3), path clear right now
+        engine.handle_click(250, 150)  # select second wR at (1,2)
+        engine.handle_click(250, 0)    # queue wR -> (0,2), arrives first (1 cell)
+        engine.tick(3000)
+        assert engine.board.get_piece_at(Position(0, 1)) == "wR"  # stopped short
+        assert engine.board.get_piece_at(Position(0, 2)) == "wR"  # the blocker
+        assert engine.board.get_piece_at(Position(0, 0)) == "."   # origin vacated
+        assert engine.board.get_piece_at(Position(0, 3)) == "."   # never reached
+
+    def test_bishop_stops_before_a_friendly_blocker_on_the_diagonal(self):
+        """wN (3,2) -> (1,1) is a legal Knight jump (2-and-1 shape,
+        Chebyshev distance 2 -> arrival = 2000) that lands squarely on
+        wB's diagonal, one step from its origin — arriving well before
+        wB's own longer move (arrival = 3000). Since the blocker lands
+        on (1,1) — the very first square of wB's diagonal — there is no
+        clear square to stop on short of it, so wB never leaves (0,0)."""
+        board = TextBoard(["wB . . .", ". . . .", ". . . .", ". . wN ."])
+        engine = GameEngine(board, cell_size=100, move_duration=1000)
+        engine.handle_click(0, 0)      # select wB
+        engine.handle_click(300, 300)  # queue wB -> (3,3), path clear right now
+        engine.handle_click(250, 350)  # select wN at (3,2)
+        engine.handle_click(150, 150)  # queue wN -> (1,1), arrival = 2000
+        engine.tick(3000)
+        assert engine.board.get_piece_at(Position(0, 0)) == "wB"  # never left origin
+        assert engine.board.get_piece_at(Position(1, 1)) == "wN"  # the blocker
+        assert engine.board.get_piece_at(Position(3, 3)) == "."   # never reached
+
+    def test_stopped_piece_fires_move_completed_event_with_the_short_destination(self):
+        board = TextBoard(["wR . . .", ". . wR .", ". . . .", ". . . ."])
+        engine = GameEngine(board, cell_size=100, move_duration=1000)
+        obs = _RecordingObserver()
+        engine.add_observer(obs)
+        engine.handle_click(0, 0)
+        engine.handle_click(300, 0)
+        engine.handle_click(250, 150)
+        engine.handle_click(250, 0)
+        engine.tick(3000)
+        completed = [c for c in obs.completed if c.piece == "wR" and c.from_pos == Position(0, 0)]
+        assert len(completed) == 1
+        assert completed[0].to_pos == Position(0, 1)
+
+    def test_blocker_immediately_adjacent_to_origin_means_no_movement_at_all(self):
+        """The blocker occupies the very first square of the route — there
+        is no clear square to stop on, so the piece simply never leaves,
+        and no MoveCompletedEvent fires for it."""
+        board = TextBoard(["wR . . .", ". wR . ."])
+        engine = GameEngine(board, cell_size=100, move_duration=1000)
+        obs = _RecordingObserver()
+        engine.add_observer(obs)
+        engine.handle_click(0, 0)      # select wR at (0,0)
+        engine.handle_click(300, 0)    # queue wR -> (0,3)
+        engine.handle_click(150, 150)  # select second wR at (1,1)
+        engine.handle_click(150, 0)    # queue wR -> (0,1), the very first step
+        engine.tick(3000)
+        assert engine.board.get_piece_at(Position(0, 0)) == "wR"  # never moved
+        assert not any(c.from_pos == Position(0, 0) for c in obs.completed)
+
+    def test_enemy_blocker_mid_route_still_drops_the_whole_move(self):
+        """Same idea as the friendly-blocker test above, but the blocker
+        is an enemy — the existing (pre-rule) behaviour must be
+        unchanged: the whole premove is dropped, mover stays at origin.
+        bN (2,1) -> (0,2) is a legal Knight jump (Chebyshev distance 2 ->
+        arrival = 2000), landing on wR's path before wR's own (arrival =
+        3000) move resolves."""
+        board = TextBoard(["wR . . .", ". . . .", ". bN . .", ". . . ."])
+        engine = GameEngine(board, cell_size=100, move_duration=1000)
+        engine.handle_click(0, 0)      # select wR
+        engine.handle_click(300, 0)    # queue wR -> (0,3), path clear right now
+        engine.handle_click(150, 250)  # select bN at (2,1)
+        engine.handle_click(250, 0)    # queue bN -> (0,2), arrival = 2000
+        engine.tick(3000)
+        assert engine.board.get_piece_at(Position(0, 0)) == "wR"  # dropped, not stopped short
+        assert engine.board.get_piece_at(Position(0, 1)) == "."
+
+    def test_knight_move_is_never_affected_by_this_rule(self):
+        """A Knight's move has no 'straight-line route' at all — the rule
+        must not apply to it regardless of what's on the board."""
+        board = TextBoard(["wN . .", ". . .", ". . ."])
+        engine = GameEngine(board, cell_size=100, move_duration=1000)
+        engine.handle_click(0, 0)      # select wN
+        engine.handle_click(150, 250)  # queue wN -> (2,1), a normal L-shape
+        engine.tick(2000)
+        assert engine.board.get_piece_at(Position(2, 1)) == "wN"
+
+    def test_adjacent_one_cell_move_has_no_intermediate_square_to_block(self):
+        board = TextBoard(["wR wR ."])
+        engine = GameEngine(board, cell_size=100, move_duration=1000)
+        engine.handle_click(100, 0)    # select the second wR at (0,1)
+        engine.handle_click(200, 0)    # queue wR -> (0,2), 1 cell, no route to block
+        engine.tick(1000)
+        assert engine.board.get_piece_at(Position(0, 2)) == "wR"
+
+    def test_pawn_two_step_blocked_by_friendly_on_its_only_intermediate_square(self):
+        """The Pawn's two-step advance has exactly one intermediate
+        square; a friendly piece there leaves nowhere to stop short of
+        the origin, so the pawn simply never advances.
+
+        4-row board: White's start row is num_rows - 1 = 3, so wP starts
+        there; wN sits on the (only) intermediate square, (2,0)."""
+        board = TextBoard([". . .", ". . .", "wN . .", "wP . ."])
+        engine = GameEngine(board, cell_size=100, move_duration=1000)
+        engine.handle_click(0, 300)    # select wP at (3,0), on its start row
+        engine.handle_click(0, 100)    # queue two-step to (1,0), path clear right now
+        engine.tick(2000)
+        assert engine.board.get_piece_at(Position(3, 0)) == "wP"  # never advanced
+        assert engine.board.get_piece_at(Position(2, 0)) == "wN"  # blocker unmoved
+        assert engine.board.get_piece_at(Position(1, 0)) == "."
+
+    def test_second_rook_stops_behind_wherever_the_first_one_lands(self):
+        """Rook A (0,0) queues a short 2-cell move to (0,2). Rook B (0,4)
+        queues a 3-cell move to (0,1) — legal when queued, since (0,2) is
+        still empty (Rook A hasn't moved yet).
+
+        Rook A (2 cells, arrival 2000) arrives before Rook B (3 cells,
+        arrival 3000) and lands on (0,2) — squarely in Rook B's path.
+        Rook B must then stop at (0,3), the square just before Rook A's
+        NEW position (which didn't exist yet when Rook B was queued)."""
+        board = TextBoard(["wR . . . wR"])
+        engine = GameEngine(board, cell_size=100, move_duration=1000)
+        engine.handle_click(50, 50)    # select Rook A at (0,0)
+        engine.handle_click(250, 50)   # queue A -> (0,2), arrival = 2000
+        engine.handle_click(450, 50)   # select Rook B at (0,4)
+        engine.handle_click(150, 50)   # queue B -> (0,1), arrival = 3000
+        engine.tick(3000)
+        assert engine.board.get_piece_at(Position(0, 2)) == "wR"  # Rook A's new spot
+        assert engine.board.get_piece_at(Position(0, 3)) == "wR"  # Rook B stopped short
+        assert engine.board.get_piece_at(Position(0, 0)) == "."   # Rook A's old spot
+        assert engine.board.get_piece_at(Position(0, 4)) == "."   # Rook B's old spot
 
 
 # ===========================================================================

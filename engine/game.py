@@ -9,6 +9,7 @@ from engine.board import AbstractBoard
 from engine.board_mapper import BoardMapper
 from engine.board_renderer import BoardRenderer, TextBoardRenderer
 from engine.game_over import GameOverRule, KingCaptureRule
+from engine.geometry import is_diagonal, is_orthogonal
 from engine.rule_engine import MoveResult, RuleEngine
 from engine.rules import MoveValidator
 from ui.events import (
@@ -351,8 +352,15 @@ class GameEngine:
 
         * The origin must still hold the same piece (it wasn't captured,
           or hasn't already been moved/re-executed).
-        * The move must still be legal (``MoveValidator.is_valid``), which
-          re-checks the destination content (friendly-piece landing is
+        * For a straight-line, multi-cell move (orthogonal or diagonal),
+          if a FRIENDLY piece now sits somewhere strictly between origin
+          and destination, the mover doesn't get dropped outright — it
+          stops on the last clear square before that piece instead (see
+          ``_stop_before_friendly_block``). An ENEMY piece blocking the
+          same way is a different case: the whole move is dropped, same
+          as always — see the next bullet.
+        * Otherwise, the move must still be legal (``MoveValidator.is_valid``),
+          which re-checks the destination content (friendly-piece landing is
           rejected, an enemy piece there is still a legal capture) and,
           for sliding pieces, that the path is still clear (a piece that
           moved into the path since queuing blocks it).
@@ -396,6 +404,26 @@ class GameEngine:
             # Guard: the piece must still be at its origin...
             if self.board.get_piece_at(pm.from_pos) != pm.piece:
                 continue
+
+            # A friendly piece now blocking the route stops the mover
+            # short instead of dropping the whole move — an enemy
+            # blocking the same way is handled by the ordinary path-clear
+            # check inside is_valid() below (whole move dropped, as always).
+            stop_pos = self._stop_before_friendly_block(pm)
+            if stop_pos is not None:
+                if stop_pos != pm.from_pos:
+                    self.board.move_piece(pm.from_pos, stop_pos)
+                    self._maybe_promote(pm.piece, stop_pos)
+                    self._notify(
+                        MoveCompletedEvent(
+                            piece=pm.piece,
+                            from_pos=pm.from_pos,
+                            to_pos=stop_pos,
+                            arrival_time=pm.arrival_time,
+                        )
+                    )
+                continue
+
             # ...and the move must still be legal given the *current* board
             # (destination / path may have changed since it was queued).
             if not self._validator.is_valid(pm.piece, pm.from_pos, pm.to_pos, self.board):
@@ -474,6 +502,48 @@ class GameEngine:
             if pj.pos == pos:
                 return pj
         return None
+
+    def _stop_before_friendly_block(self, pm: PendingMove) -> Position | None:
+        """Where a due move should stop short, if a friendly piece is now
+        blocking its route — or None if that doesn't apply.
+
+        Only meaningful for a straight-line, multi-cell move (orthogonal
+        or diagonal); anything else (a Knight's jump, a single-step move
+        with no intermediate square) returns None immediately. Walks the
+        cells strictly between ``pm.from_pos`` and ``pm.to_pos``:
+
+        * Path fully clear -> None (normal ``is_valid`` handling decides
+          the outcome, same as before this rule existed).
+        * First occupied cell holds an enemy piece -> None (an enemy
+          mid-route is still a fully-dropped premove, via the ordinary
+          path-clear check in ``MoveValidator.is_valid``).
+        * First occupied cell holds a friendly piece -> the last clear
+          cell before it (which is ``pm.from_pos`` itself if that very
+          first step is already blocked — the piece simply doesn't move).
+        """
+        from_pos, to_pos = pm.from_pos, pm.to_pos
+        if not (is_orthogonal(from_pos, to_pos) or is_diagonal(from_pos, to_pos)):
+            return None
+
+        dr = to_pos.row - from_pos.row
+        dc = to_pos.col - from_pos.col
+        steps = max(abs(dr), abs(dc))
+        if steps < 2:
+            return None  # adjacent cells have no square between them
+
+        step_r = dr // steps
+        step_c = dc // steps
+        prev = from_pos
+        r, c = from_pos.row + step_r, from_pos.col + step_c
+        while (r, c) != (to_pos.row, to_pos.col):
+            cell = Position(r, c)
+            occupant = self.board.get_piece_at(cell)
+            if occupant != ".":
+                return prev if same_color(occupant, pm.piece) else None
+            prev = cell
+            r += step_r
+            c += step_c
+        return None  # path fully clear
 
     def _maybe_promote(self, piece: str, pos: Position) -> None:
         """Promote a Pawn to a Queen the instant it reaches the back rank.
