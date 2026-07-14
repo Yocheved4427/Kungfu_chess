@@ -4,15 +4,15 @@ from typing import List
 
 from controllers.click_controller import ClickController
 from core.config import COOLDOWN_DURATION, JUMP_DURATION, MOVE_DURATION
-from core.models import Color, PendingJump, PendingMove, Position, same_color
+from core.models import PendingJump, PendingMove, Position, same_color
 from engine.board import AbstractBoard
-from engine.board_mapper import BoardMapper
 from engine.board_renderer import BoardRenderer, TextBoardRenderer
-from engine.collision_resolver import CollisionResolver
 from engine.game_over import GameOverRule, KingCaptureRule
 from engine.game_state import GameState
 from engine.rule_engine import MoveResult, RuleEngine
 from engine.rules import MoveValidator
+from input.board_mapper import BoardMapper
+from realtime.collision_resolver import CollisionResolver
 from ui.events import (
     AirborneCaptureEvent,
     GameEvent,
@@ -25,26 +25,51 @@ from ui.events import (
 )
 
 # ---------------------------------------------------------------------------
-# Kung Fu Chess – Game Engine (Iteration 14: State extracted into GameState)
+# Kung Fu Chess – Game Engine (Iteration 15: Fully stateless GameEngine)
 # ---------------------------------------------------------------------------
 # New in this iteration
 # ----------------------
+#   * GameEngine no longer instantiates or owns a GameState. There is no
+#     ``self.state`` (Iteration 14's version still held one internally —
+#     this was flagged as a half-measure). Every action method now takes
+#     a ``state: GameState`` argument explicitly and reads/writes only
+#     that: ``tick(state, ms)``, ``attempt_move(state, from_pos, to_pos)``,
+#     ``try_move(state, from_pos, to_pos)``, ``handle_click(state, x, y)``,
+#     ``handle_jump(state, x, y)``, ``is_selectable(state, pos)``,
+#     ``is_in_transit(state, pos)``, ``is_airborne(state, pos)``,
+#     ``is_in_cooldown(state, pos)``, ``request_render(state)``.
+#   * The compatibility shim properties from Iteration 14 (``board``,
+#     ``game_over``, ``winner``, ``_pending``, ``_airborne``, ``clock_ms``)
+#     are gone. GameEngine no longer pretends to own any of this — a
+#     caller reads ``state.board``/``state.game_over``/etc. directly.
+#   * GameEngine's own attributes are now strictly collaborators
+#     (MoveValidator, RuleEngine, CollisionResolver, BoardMapper, ...)
+#     and static per-game config (move/jump/cooldown duration) — never
+#     anything that changes as a game progresses. The same ``GameEngine``
+#     instance (and all its collaborators) can now drive many independent
+#     ``GameState``s concurrently, since nothing about a specific game's
+#     progress is stored on ``self``.
+#   * The constructor still takes an initial ``board`` — used exactly
+#     once, to prime ``GameOverRule`` (a stateful collaborator in its own
+#     right — see ``KingCaptureRule`` — that must see the pristine board
+#     before any move happens, to distinguish "this colour never had a
+#     King" from "its King was captured"). That board is never retained
+#     as an attribute; it is not the same thing as owning a GameState.
+#   * ``ClickController`` now takes ``state`` as an explicit parameter on
+#     ``handle_click`` too, and forwards it to ``is_selectable``/
+#     ``attempt_move`` — it still holds a reference to the ``GameEngine``
+#     instance (to call into it) and to its own ``selection`` (a
+#     UI/interaction concern, not part of ``GameState``), but never a
+#     ``GameState`` reference of its own.
+#
+# Iteration 14 recap: State extracted into GameState (superseded above)
+# -------------------------------------------------------------------
 #   * Every mutable per-game value GameEngine used to hold directly
 #     (board, current_time, pending, airborne, cooldowns, game_over,
-#     winner) now lives on a single ``self.state: GameState`` instance
-#     (SRP: state vs. logic — see engine/game_state.py). GameEngine's own
-#     attributes are now only collaborators/services (MoveValidator,
-#     RuleEngine, CollisionResolver, BoardMapper, ...) and static
-#     per-game config (move/jump/cooldown duration) — never anything that
-#     changes as the game progresses.
-#   * ``board``, ``game_over``, ``winner`` stay available as read-only
-#     properties (thin aliases over ``self.state``) since ClickController
-#     and a large existing test suite already read them by those names;
-#     ``_pending``/``_airborne`` likewise, for the same reason. Nothing
-#     external ever assigned through these names, so read-only aliases
-#     are a fully compatible, zero-behavior-change shim. All of
-#     GameEngine's *internal* logic reads/writes ``self.state.*``
-#     directly rather than going through these aliases.
+#     winner) was moved onto a ``GameState`` dataclass (see
+#     engine/game_state.py) — but GameEngine still instantiated and held
+#     one itself as ``self.state``, with read-only shim properties for
+#     backward compatibility. Iteration 15 (above) removes both.
 #
 # Iteration 13 recap: Collision resolution extracted
 # -------------------------------------------------------------------
@@ -83,10 +108,9 @@ from ui.events import (
 # Iteration 10 recap: RuleEngine service layer
 # -----------------------------------------------
 #   * try_move(from_pos, to_pos) -> MoveResult: a synchronous, plain
-#     RuleEngine-backed move. GameEngine is confirmed/kept as the single
-#     service layer that owns board state — it is the only component
-#     that ever calls board.move_piece / board.set_piece_at; RuleEngine
-#     only reads the board to decide legality and never mutates it.
+#     RuleEngine-backed move. RuleEngine only reads the board to decide
+#     legality and never mutates it — GameEngine is the only component
+#     that ever calls board.move_piece / board.set_piece_at.
 #
 # Iteration 9 recap: Click Controller
 # -------------------------------------
@@ -99,10 +123,11 @@ from ui.events import (
 #
 # Iteration 8 recap: Jump
 # ------------------------
-#   * handle_jump(x, y) sends a piece airborne for ``jump_duration`` ms
-#     (default JUMP_DURATION). Unlike a move, a jump never relocates its
-#     piece — it stays on its own cell the whole time, tracked separately
-#     in ``_airborne`` (a list of PendingJump) rather than ``_pending``.
+#   * handle_jump(state, x, y) sends a piece airborne for ``jump_duration``
+#     ms (default JUMP_DURATION). Unlike a move, a jump never relocates
+#     its piece — it stays on its own cell the whole time, tracked
+#     separately in ``state.airborne`` (a list of PendingJump) rather
+#     than ``state.pending``.
 #   * While airborne, the piece is immune to capture: if an enemy
 #     PendingMove arrives at its cell during the window, tick() removes
 #     the ARRIVING piece instead (AirborneCaptureEvent) and the defender
@@ -116,20 +141,25 @@ from ui.events import (
 
 
 class GameEngine:
-    """Core game state machine and event Subject.
+    """Stateless game-rules service, operating on an externally-owned
+    ``GameState`` passed into every action method.
 
     Responsibilities
     ----------------
-    * Own the game's mutable state as a single ``self.state: GameState``
-      instance (board, clock, pending moves, airborne jumps, cooldowns,
-      game-over/winner) — see engine/game_state.py. GameEngine's other
-      attributes are collaborators (MoveValidator, RuleEngine,
-      CollisionResolver, ...) or static config, never state.
-    * The single service layer that owns board state. Nothing else may
-      mutate it: ``board.move_piece``/``board.set_piece_at`` are called
-      only from within this class (``tick()`` and ``try_move``) — every
-      other component (``RuleEngine``, ``MoveValidator``,
-      ``ClickController``, ...) only ever *reads* the board.
+    * Hold zero per-game state. Every attribute on ``self`` is either a
+      collaborator (``MoveValidator``, ``RuleEngine``, ``CollisionResolver``,
+      ``BoardMapper``, ...) or static per-game configuration (move/jump/
+      cooldown duration) — fixed at construction, never mutated
+      afterward. Board, clock, pending moves, airborne jumps, cooldowns,
+      game-over/winner all live on the caller's ``GameState`` instead —
+      see engine/game_state.py — and are threaded through every call as
+      an explicit ``state`` argument.
+    * The single service layer that owns board *mutation* authority.
+      Nothing else may mutate a board: ``board.move_piece``/
+      ``board.set_piece_at`` are called only from within this class
+      (``tick()`` and ``try_move``) — every other component
+      (``RuleEngine``, ``MoveValidator``, ``ClickController``, ...) only
+      ever *reads* it.
     * Be the sole authority on move *legality*, through two parallel
       pathways: ``attempt_move``/``is_selectable`` (the real-time, queued
       pipeline behind ``handle_click``, backed by ``MoveValidator`` plus
@@ -144,7 +174,8 @@ class GameEngine:
       (used directly by ``handle_jump``, and indirectly by
       ``ClickController`` for ``handle_click``) — the only component
       that does so; nothing does raw ``x // cell_size`` arithmetic.
-    * Advance the game clock (``tick``); execute moves whose arrival time is due.
+    * Advance a given ``GameState``'s clock (``tick``); execute moves
+      whose arrival time is due.
     * Notify registered ``Observer`` instances on ``RenderEvent``,
       ``TimeAdvancedEvent``, and ``MoveCompletedEvent``.
     """
@@ -163,7 +194,6 @@ class GameEngine:
         cooldown_duration: int = COOLDOWN_DURATION,
         collision_resolver: CollisionResolver | None = None,
     ) -> None:
-        self.state: GameState = GameState(board=board)
         self._mapper: BoardMapper = mapper if mapper is not None else BoardMapper(cell_size)
         self._move_duration: int = move_duration
         self._jump_duration: int = jump_duration
@@ -186,7 +216,9 @@ class GameEngine:
         self._observers: List[Observer] = []
         # Prime the rule with the pristine starting board — before any
         # move can run — so a stateful rule like KingCaptureRule can tell
-        # "this colour never had a King" apart from "its King was captured".
+        # "this colour never had a King" apart from "its King was
+        # captured". *board* is used here only for this one-time priming
+        # call; it is never stored on self — GameEngine owns no GameState.
         self._game_over_rule.check(board)
         # Click semantics (select / switch-selection / attempt-move) are
         # entirely owned by ClickController — see handle_click below.
@@ -204,16 +236,16 @@ class GameEngine:
         for obs in self._observers:
             obs.on_event(event)
 
-    def request_render(self) -> None:
-        """Broadcast a ``RenderEvent`` carrying the current board text."""
-        self._notify(RenderEvent(board_text=self._renderer.render(self.state.board)))
+    def request_render(self, state: GameState) -> None:
+        """Broadcast a ``RenderEvent`` carrying *state*'s board text."""
+        self._notify(RenderEvent(board_text=self._renderer.render(state.board)))
 
     # ------------------------------------------------------------------
     # Game commands
     # ------------------------------------------------------------------
 
-    def handle_click(self, x: int, y: int) -> None:
-        """Process a pixel-coordinate click.
+    def handle_click(self, state: GameState, x: int, y: int) -> None:
+        """Process a pixel-coordinate click against *state*.
 
         Entirely delegated to ``ClickController``, which owns click
         semantics (select / switch selection / attempt move) and the
@@ -224,10 +256,10 @@ class GameEngine:
         relocates later, via ``tick()``) and every selection decision
         consults ``is_selectable``; it never decides legality itself.
         """
-        self._click_controller.handle_click(x, y)
+        self._click_controller.handle_click(state, x, y)
 
-    def is_selectable(self, pos: Position) -> bool:
-        """True iff *pos* holds a piece that can currently be selected.
+    def is_selectable(self, state: GameState, pos: Position) -> bool:
+        """True iff *pos* holds a piece that can currently be selected in *state*.
 
         A piece is selectable iff it exists and isn't busy (mid-move,
         airborne, or cooling down from its last landing). Pure query
@@ -235,13 +267,13 @@ class GameEngine:
         nothing about whether any particular move from that piece would
         be legal; that's ``attempt_move``'s job.
         """
-        piece = self.state.board.get_piece_at(pos)
-        return piece is not None and piece != "." and not self._is_busy(pos)
+        piece = state.board.get_piece_at(pos)
+        return piece is not None and piece != "." and not self._is_busy(state, pos)
 
-    def attempt_move(self, from_pos: Position, to_pos: Position) -> bool:
-        """The real-time pipeline's move attempt — queues rather than
-        applies. This is what ``ClickController`` forwards every move
-        attempt to behind ``handle_click``.
+    def attempt_move(self, state: GameState, from_pos: Position, to_pos: Position) -> bool:
+        """The real-time pipeline's move attempt against *state* — queues
+        rather than applies. This is what ``ClickController`` forwards
+        every move attempt to behind ``handle_click``.
 
         Attempts to move whatever is at *from_pos* to *to_pos*, queuing
         a ``PendingMove`` iff every check passes. Returns True iff the
@@ -254,24 +286,24 @@ class GameEngine:
         * ``MoveValidator`` approves the shape/destination/path.
         * The move doesn't violate the opposite-colour route lock.
         """
-        if self.state.game_over:
+        if state.game_over:
             return False
 
-        piece = self.state.board.get_piece_at(from_pos)
-        if piece is None or piece == "." or self._is_busy(from_pos):
+        piece = state.board.get_piece_at(from_pos)
+        if piece is None or piece == "." or self._is_busy(state, from_pos):
             return False
 
-        if not self._validator.is_valid(piece, from_pos, to_pos, self.state.board):
+        if not self._validator.is_valid(piece, from_pos, to_pos, state.board):
             return False
-        if self._route_conflicts(piece, from_pos, to_pos):
+        if self._route_conflicts(state, piece, from_pos, to_pos):
             return False
 
         cells_moved = max(
             abs(from_pos.row - to_pos.row),
             abs(from_pos.col - to_pos.col),
         )
-        arrival = self.state.current_time + cells_moved * self._move_duration
-        self.state.pending.append(
+        arrival = state.current_time + cells_moved * self._move_duration
+        state.pending.append(
             PendingMove(
                 piece=piece,
                 from_pos=from_pos,
@@ -281,12 +313,13 @@ class GameEngine:
         )
         return True
 
-    def try_move(self, from_pos: Position, to_pos: Position) -> MoveResult:
-        """Synchronous, ``RuleEngine``-backed move — GameEngine's plain
-        service-layer entry point, distinct from the real-time pipeline.
-        Independently usable and fully tested, but ``ClickController``
-        does not call this — clicks drive ``attempt_move`` instead (the
-        VPL grader enforces the queued, real-time mechanics).
+    def try_move(self, state: GameState, from_pos: Position, to_pos: Position) -> MoveResult:
+        """Synchronous, ``RuleEngine``-backed move against *state* —
+        GameEngine's plain service-layer entry point, distinct from the
+        real-time pipeline. Independently usable and fully tested, but
+        ``ClickController`` does not call this — clicks drive
+        ``attempt_move`` instead (the VPL grader enforces the queued,
+        real-time mechanics).
 
         Validates via ``RuleEngine.validate_move`` and, only if the
         result is ``MoveResult.OK``, applies the move to the board
@@ -321,29 +354,29 @@ class GameEngine:
         ``tick()``'s notifications; ``arrival_time`` is reported as the
         current clock value, since the move already happened.
         """
-        if self.state.game_over:
+        if state.game_over:
             return MoveResult.GAME_OVER
 
-        piece = self.state.board.get_piece_at(from_pos) or "."
-        result = self._rule_engine.validate_move(piece, from_pos, to_pos, self.state.board)
+        piece = state.board.get_piece_at(from_pos) or "."
+        result = self._rule_engine.validate_move(piece, from_pos, to_pos, state.board)
         if not result.is_ok:
             return result
 
-        self.state.board.move_piece(from_pos, to_pos)
-        self._maybe_promote(piece, to_pos)
+        state.board.move_piece(from_pos, to_pos)
+        self._maybe_promote(state, piece, to_pos)
         self._notify(
             MoveCompletedEvent(
                 piece=piece,
                 from_pos=from_pos,
                 to_pos=to_pos,
-                arrival_time=self.state.current_time,
+                arrival_time=state.current_time,
             )
         )
-        self._check_game_over()
+        self._check_game_over(state)
         return MoveResult.OK
 
-    def handle_jump(self, x: int, y: int) -> None:
-        """Process a pixel-coordinate jump command.
+    def handle_jump(self, state: GameState, x: int, y: int) -> None:
+        """Process a pixel-coordinate jump command against *state*.
 
         * Game over → silently ignored.
         * Out-of-bounds click → silently ignored.
@@ -358,29 +391,29 @@ class GameEngine:
         Unlike ``handle_click``, a jump needs no selection step: origin
         and destination are always the same cell, so one call is enough.
         """
-        if self.state.game_over:
+        if state.game_over:
             return
 
         pos = self._mapper.pixel_to_cell(x, y)
 
-        if not self.state.board.contains(pos):
+        if not state.board.contains(pos):
             return
 
-        piece = self.state.board.get_piece_at(pos)
+        piece = state.board.get_piece_at(pos)
 
-        if piece is None or piece == "." or self._is_busy(pos):
+        if piece is None or piece == "." or self._is_busy(state, pos):
             return
 
-        self.state.airborne.append(
+        state.airborne.append(
             PendingJump(
                 piece=piece,
                 pos=pos,
-                land_time=self.state.current_time + self._jump_duration,
+                land_time=state.current_time + self._jump_duration,
             )
         )
 
-    def tick(self, ms: int) -> None:
-        """Advance the game clock by *ms* milliseconds.
+    def tick(self, state: GameState, ms: int) -> None:
+        """Advance *state*'s game clock by *ms* milliseconds.
 
         After updating ``current_time``, all pending moves whose
         ``arrival_time <= current_time`` are executed in chronological
@@ -404,36 +437,36 @@ class GameEngine:
         on the exact millisecond an enemy arrives still defends its cell.
         Then a ``TimeAdvancedEvent`` is broadcast.
         """
-        self.state.current_time += ms
+        state.current_time += ms
 
         due: List[PendingMove] = []
         remaining: List[PendingMove] = []
-        for pm in self.state.pending:
-            (due if pm.arrival_time <= self.state.current_time else remaining).append(pm)
-        self.state.pending = remaining
+        for pm in state.pending:
+            (due if pm.arrival_time <= state.current_time else remaining).append(pm)
+        state.pending = remaining
         due.sort(key=lambda pm: pm.arrival_time)
 
         for pm in due:
-            self._resolve_due_move(pm)
+            self._resolve_due_move(state, pm)
 
         grounded: List[PendingJump] = []
         still_airborne: List[PendingJump] = []
-        for pj in self.state.airborne:
-            (grounded if pj.land_time <= self.state.current_time else still_airborne).append(pj)
-        self.state.airborne = still_airborne
+        for pj in state.airborne:
+            (grounded if pj.land_time <= state.current_time else still_airborne).append(pj)
+        state.airborne = still_airborne
         for pj in grounded:
-            self._set_cooldown(pj.pos)
+            self._set_cooldown(state, pj.pos)
             self._notify(JumpLandedEvent(piece=pj.piece, pos=pj.pos, land_time=pj.land_time))
 
-        self._check_game_over()
-        self._notify(TimeAdvancedEvent(current_time=self.state.current_time))
+        self._check_game_over(state)
+        self._notify(TimeAdvancedEvent(current_time=state.current_time))
 
-    def _resolve_due_move(self, pm: PendingMove) -> None:
-        """Apply a single due ``PendingMove``'s outcome, deferring the
-        friendly-block and airborne-interception *decisions* to
-        ``CollisionResolver`` — this method stays the sole place that
-        mutates the board and fires events, per the class's board-
-        ownership contract.
+    def _resolve_due_move(self, state: GameState, pm: PendingMove) -> None:
+        """Apply a single due ``PendingMove``'s outcome against *state*,
+        deferring the friendly-block and airborne-interception
+        *decisions* to ``CollisionResolver`` — this method stays the sole
+        place that mutates the board and fires events, per the class's
+        board-ownership contract.
 
         * The origin must still hold the same piece (it wasn't captured,
           or hasn't already been moved/re-executed) — otherwise dropped.
@@ -460,15 +493,15 @@ class GameEngine:
         ``MoveCompletedEvent`` is fired and the landing cell starts its
         cooldown window.
         """
-        if self.state.board.get_piece_at(pm.from_pos) != pm.piece:
+        if state.board.get_piece_at(pm.from_pos) != pm.piece:
             return
 
-        stop_pos = self._collision_resolver.stop_before_friendly_block(pm, self.state.board)
+        stop_pos = self._collision_resolver.stop_before_friendly_block(pm, state.board)
         if stop_pos is not None:
             if stop_pos != pm.from_pos:
-                self.state.board.move_piece(pm.from_pos, stop_pos)
-                self._maybe_promote(pm.piece, stop_pos)
-                self._set_cooldown(stop_pos)
+                state.board.move_piece(pm.from_pos, stop_pos)
+                self._maybe_promote(state, pm.piece, stop_pos)
+                self._set_cooldown(state, stop_pos)
                 self._notify(
                     MoveCompletedEvent(
                         piece=pm.piece,
@@ -479,14 +512,14 @@ class GameEngine:
                 )
             return
 
-        if not self._validator.is_valid(pm.piece, pm.from_pos, pm.to_pos, self.state.board):
+        if not self._validator.is_valid(pm.piece, pm.from_pos, pm.to_pos, state.board):
             return
 
         defender = self._collision_resolver.airborne_defender(
-            pm.to_pos, pm.piece, self.state.airborne
+            pm.to_pos, pm.piece, state.airborne
         )
         if defender is not None:
-            self.state.board.set_piece_at(pm.from_pos, ".")
+            state.board.set_piece_at(pm.from_pos, ".")
             self._notify(
                 AirborneCaptureEvent(
                     defender=defender.piece,
@@ -496,9 +529,9 @@ class GameEngine:
             )
             return
 
-        self.state.board.move_piece(pm.from_pos, pm.to_pos)
-        self._maybe_promote(pm.piece, pm.to_pos)
-        self._set_cooldown(pm.to_pos)
+        state.board.move_piece(pm.from_pos, pm.to_pos)
+        self._maybe_promote(state, pm.piece, pm.to_pos)
+        self._set_cooldown(state, pm.to_pos)
         self._notify(
             MoveCompletedEvent(
                 piece=pm.piece,
@@ -509,94 +542,66 @@ class GameEngine:
         )
 
     # ------------------------------------------------------------------
-    # Read-only accessors
+    # Read-only queries
     # ------------------------------------------------------------------
-
-    @property
-    def board(self) -> AbstractBoard:
-        """Current board — a read-only alias over ``self.state.board``.
-
-        Kept as a property (rather than moving every caller onto
-        ``engine.state.board``) because ``ClickController`` and a large
-        existing test suite already read ``engine.board`` directly;
-        nothing ever assigns through it, so this alias is fully
-        behavior-preserving. GameEngine's own methods read
-        ``self.state.board`` directly rather than through this property.
-        """
-        return self.state.board
-
-    @property
-    def game_over(self) -> bool:
-        """Whether the game has ended — read-only alias over ``self.state``."""
-        return self.state.game_over
-
-    @property
-    def winner(self) -> Color | None:
-        """The winning colour, if any — read-only alias over ``self.state``."""
-        return self.state.winner
-
-    @property
-    def _pending(self) -> List[PendingMove]:
-        """Queued, not-yet-arrived moves — read-only alias over ``self.state``."""
-        return self.state.pending
-
-    @property
-    def _airborne(self) -> List[PendingJump]:
-        """Pieces currently mid-jump — read-only alias over ``self.state``."""
-        return self.state.airborne
-
-    @property
-    def clock_ms(self) -> int:
-        """Current game-clock value in milliseconds (alias for current_time)."""
-        return self.state.current_time
+    # No shim properties over GameState here (deliberately) — a caller
+    # holding a GameState already has direct access to state.board,
+    # state.game_over, state.winner, state.pending, state.airborne, and
+    # state.current_time. Only genuine *logic* (not plain attribute
+    # access) stays on GameEngine, and takes state explicitly.
 
     @property
     def selection(self) -> Position | None:
-        """Currently selected cell, if any — owned by ``ClickController``;
+        """Currently selected cell, if any — owned by ``ClickController``
+        (a UI/interaction concern, not part of any ``GameState``);
         exposed here read-only for callers/tests that inspect it."""
         return self._click_controller.selection
 
-    def is_in_transit(self, pos: Position) -> bool:
-        """Return True if *pos* is the origin of a move that has not yet arrived."""
-        return any(pm.from_pos == pos for pm in self.state.pending)
+    def is_in_transit(self, state: GameState, pos: Position) -> bool:
+        """Return True if *pos* is the origin of a move in *state* that has not yet arrived."""
+        return any(pm.from_pos == pos for pm in state.pending)
 
-    def is_airborne(self, pos: Position) -> bool:
-        """Return True if the piece at *pos* is currently mid-jump."""
-        return self._airborne_at(pos) is not None
+    def is_airborne(self, state: GameState, pos: Position) -> bool:
+        """Return True if the piece at *pos* is currently mid-jump in *state*."""
+        return self._airborne_at(state, pos) is not None
 
-    def is_in_cooldown(self, pos: Position) -> bool:
-        """Return True if *pos* is still cooling down after a landing.
+    def is_in_cooldown(self, state: GameState, pos: Position) -> bool:
+        """Return True if *pos* is still cooling down after a landing in *state*.
 
         Set whenever a move (full arrival or a friendly-block stop-short)
         or a jump lands on *pos* — see ``_set_cooldown``. Expires on its
         own once ``current_time`` passes the stored expiry; no explicit
         cleanup is needed."""
-        expiry = self.state.cooldowns.get(pos)
-        return expiry is not None and expiry > self.state.current_time
+        expiry = state.cooldowns.get(pos)
+        return expiry is not None and expiry > state.current_time
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _is_busy(self, pos: Position) -> bool:
+    def _is_busy(self, state: GameState, pos: Position) -> bool:
         """Return True if the piece at *pos* is committed to another
         action — already moving, already airborne, or still cooling down
         from its last landing — and so cannot be selected, redirected, or
         jumped again."""
-        return self.is_in_transit(pos) or self.is_airborne(pos) or self.is_in_cooldown(pos)
+        return (
+            self.is_in_transit(state, pos)
+            or self.is_airborne(state, pos)
+            or self.is_in_cooldown(state, pos)
+        )
 
-    def _set_cooldown(self, pos: Position) -> None:
-        """Start (or restart) *pos*'s cooldown window from the current time."""
-        self.state.cooldowns[pos] = self.state.current_time + self._cooldown_duration
+    def _set_cooldown(self, state: GameState, pos: Position) -> None:
+        """Start (or restart) *pos*'s cooldown window in *state* from the current time."""
+        state.cooldowns[pos] = state.current_time + self._cooldown_duration
 
-    def _airborne_at(self, pos: Position) -> PendingJump | None:
-        """Return the active ``PendingJump`` at *pos*, if any."""
-        for pj in self.state.airborne:
+    def _airborne_at(self, state: GameState, pos: Position) -> PendingJump | None:
+        """Return the active ``PendingJump`` at *pos* in *state*, if any."""
+        for pj in state.airborne:
             if pj.pos == pos:
                 return pj
         return None
 
-    def _maybe_promote(self, piece: str, pos: Position) -> None:
+    def _maybe_promote(self, state: GameState, piece: str, pos: Position) -> None:
         """Promote a Pawn to a Queen the instant it reaches the back rank.
 
         White promotes on row 0 (the row it advances toward); Black on
@@ -607,24 +612,24 @@ class GameEngine:
         """
         if piece[1] != "P":
             return
-        last_row = 0 if piece[0] == "w" else self.state.board.num_rows - 1
+        last_row = 0 if piece[0] == "w" else state.board.num_rows - 1
         if pos.row == last_row:
-            self.state.board.set_piece_at(pos, piece[0] + "Q")
+            state.board.set_piece_at(pos, piece[0] + "Q")
 
-    def _check_game_over(self) -> None:
-        """Ask the injected ``GameOverRule`` whether the game just ended.
+    def _check_game_over(self, state: GameState) -> None:
+        """Ask the injected ``GameOverRule`` whether *state*'s game just ended.
 
         A no-op once ``game_over`` is already True — the transition only
         happens once, and only one ``GameOverEvent`` is ever fired.
         """
-        if self.state.game_over:
+        if state.game_over:
             return
-        result = self._game_over_rule.check(self.state.board)
+        result = self._game_over_rule.check(state.board)
         if not result.is_over:
             return
-        self.state.game_over = True
-        self.state.winner = result.winner
-        self._notify(GameOverEvent(winner=self.state.winner))
+        state.game_over = True
+        state.winner = result.winner
+        self._notify(GameOverEvent(winner=state.winner))
 
     @staticmethod
     def _is_friendly(piece_a: str | None, piece_b: str | None) -> bool:
@@ -649,10 +654,10 @@ class GameEngine:
         return None
 
     def _route_conflicts(
-        self, piece: str, from_pos: Position, to_pos: Position
+        self, state: GameState, piece: str, from_pos: Position, to_pos: Position
     ) -> bool:
         """Return True if this move's lane overlaps an opposite-colour piece
-        already in transit along the same lane.
+        already in transit along the same lane in *state*.
 
         Pieces of opposite colour may not travel a common route (the same
         span of columns on a horizontal move, or rows on a vertical move)
@@ -663,7 +668,7 @@ class GameEngine:
         if lane is None:
             return False
         axis, lo, hi = lane
-        for pm in self.state.pending:
+        for pm in state.pending:
             if same_color(pm.piece, piece):
                 continue
             other_lane = self._lane(pm.from_pos, pm.to_pos)

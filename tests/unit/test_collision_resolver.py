@@ -2,7 +2,7 @@
 Unit tests for ``CollisionResolver`` (Kungfu Chess).
 
 Covers the two collision *decisions* extracted out of GameEngine.tick()
-(see engine/collision_resolver.py): where a sliding move should stop
+(see realtime/collision_resolver.py): where a sliding move should stop
 short of a friendly mid-route block, and whether an arriving piece is
 intercepted by an airborne enemy. This class never mutates the board or
 fires events — only GameEngine.tick() (via ``_resolve_due_move``) does,
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from core.models import PendingJump, PendingMove, Position
 from engine.board import TextBoard
-from engine.collision_resolver import CollisionResolver
+from realtime.collision_resolver import CollisionResolver
 
 
 def _pm(piece: str, from_pos: Position, to_pos: Position) -> PendingMove:

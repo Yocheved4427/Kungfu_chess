@@ -3,9 +3,10 @@ from __future__ import annotations
 from typing import Callable, List, TextIO
 
 from engine.board import AbstractBoard
-from engine.board_parser import BoardParser
 from engine.board_validator import BoardValidator
 from engine.game import GameEngine
+from engine.game_state import GameState
+from input.board_parser import BoardParser
 from ui.events import GameEvent, Observer, RenderEvent
 
 # ---------------------------------------------------------------------------
@@ -15,9 +16,12 @@ from ui.events import GameEvent, Observer, RenderEvent
 # without depending on any I/O mechanism.
 #
 # "print board" flow:
-#   _execute_commands → engine.request_render()
+#   _execute_commands → engine.request_render(state)
 #   engine._notify(RenderEvent) → handler.on_event(RenderEvent)
 #   handler.on_event → writer.write(board_text)
+#
+# GameEngine is stateless (Iteration 15): this handler owns the single
+# ``GameState`` for the run and passes it explicitly to every engine call.
 #
 # The handler never touches Board directly — it renders via whatever
 # BoardRenderer the engine was built with (default: TextBoardRenderer) —
@@ -79,7 +83,8 @@ class ChessIOHandler(Observer):
         self._validator.validate(board.get_rows())
         engine = self._engine_factory(board)
         engine.add_observer(self)
-        self._execute_commands(engine, command_lines)
+        state = GameState(board=board)
+        self._execute_commands(engine, state, command_lines)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -113,18 +118,20 @@ class ChessIOHandler(Observer):
         return board_lines, command_lines
 
     def _execute_commands(
-        self, engine: GameEngine, command_lines: List[str]
+        self, engine: GameEngine, state: GameState, command_lines: List[str]
     ) -> None:
-        """Dispatch each command line to the appropriate engine method."""
+        """Dispatch each command line to the appropriate engine method,
+        threading *state* through every call — GameEngine holds none of
+        its own."""
         for line in command_lines:
             parts = line.split()
             if not parts:
                 continue
             if parts[0] == "click" and len(parts) == 3:
-                engine.handle_click(int(parts[1]), int(parts[2]))
+                engine.handle_click(state, int(parts[1]), int(parts[2]))
             elif parts[0] == "jump" and len(parts) == 3:
-                engine.handle_jump(int(parts[1]), int(parts[2]))
+                engine.handle_jump(state, int(parts[1]), int(parts[2]))
             elif parts[0] == "wait" and len(parts) == 2:
-                engine.tick(int(parts[1]))
+                engine.tick(state, int(parts[1]))
             elif parts[0] == "print" and len(parts) == 2 and parts[1] == "board":
-                engine.request_render()
+                engine.request_render(state)

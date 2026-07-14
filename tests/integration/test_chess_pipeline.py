@@ -37,9 +37,9 @@ import pytest
 
 from core.config import MOVE_DURATION, VALID_PIECE_CHARS
 from core.models import Position
-from engine.board_parser import BoardParser
 from engine.board_validator import BoardValidationError, BoardValidator
 from engine.game import GameEngine
+from input.board_parser import BoardParser
 from ui.io_handler import ChessIOHandler
 
 
@@ -135,9 +135,9 @@ class TestPipelineWait:
             engine = GameEngine(board)
             original_tick = engine.tick
 
-            def recording_tick(ms):
+            def recording_tick(state, ms):
                 captured.append(ms)
-                original_tick(ms)
+                original_tick(state, ms)
 
             engine.tick = recording_tick
             return engine

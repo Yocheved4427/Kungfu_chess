@@ -3,10 +3,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from core.models import Position, same_color
-from engine.board_mapper import BoardMapper
+from input.board_mapper import BoardMapper
 
 if TYPE_CHECKING:
     from engine.game import GameEngine
+    from engine.game_state import GameState
 
 # ---------------------------------------------------------------------------
 # Kung Fu Chess – Click Controller
@@ -33,6 +34,14 @@ if TYPE_CHECKING:
 # separate, synchronous, RuleEngine-backed API that applies a move
 # instantly) still exists and is still fully functional — but clicks do
 # not use it.
+#
+# NOTE — GameEngine is stateless (Iteration 15): handle_click takes the
+# game's ``GameState`` as an explicit argument and forwards it to
+# is_selectable()/attempt_move() on every call. This class still holds a
+# reference to the ``GameEngine`` instance (to call into it) and to its
+# own ``selection`` (a UI/interaction concern with no GameState field of
+# its own) — but never a ``GameState`` reference; it only ever sees one
+# for the duration of a single handle_click() call.
 # ---------------------------------------------------------------------------
 
 
@@ -58,19 +67,19 @@ class ClickController:
         self._mapper = mapper
         self.selection: Position | None = None
 
-    def handle_click(self, x: int, y: int) -> None:
-        if self._engine.game_over:
+    def handle_click(self, state: "GameState", x: int, y: int) -> None:
+        if state.game_over:
             return
 
         pos = self._mapper.pixel_to_cell(x, y)
-        board = self._engine.board
+        board = state.board
         if not board.contains(pos):
             return
 
         clicked_piece = board.get_piece_at(pos)
 
         if self.selection is None:
-            if clicked_piece != "." and self._engine.is_selectable(pos):
+            if clicked_piece != "." and self._engine.is_selectable(state, pos):
                 self.selection = pos
             return
 
@@ -79,12 +88,12 @@ class ClickController:
         # A click on a different friendly, selectable piece switches the
         # selection — it is never treated as a move attempt.
         if clicked_piece != "." and same_color(selected_piece, clicked_piece):
-            if self._engine.is_selectable(pos):
+            if self._engine.is_selectable(state, pos):
                 self.selection = pos
             return
 
         # Anything else — empty cell or enemy piece — is a move attempt.
         # This controller does not decide whether it's legal; it just
         # forwards it and clears the selection no matter the outcome.
-        self._engine.attempt_move(self.selection, pos)
+        self._engine.attempt_move(state, self.selection, pos)
         self.selection = None

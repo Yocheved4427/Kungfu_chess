@@ -15,7 +15,7 @@ from core.models import Color, Position
 #   * Pixel <-> cell translation and click/jump handling: engine.game.GameEngine.
 #   * Turning board state into a displayable form: engine.board_renderer.
 #
-# BoardParser lives in engine.board_parser.
+# BoardParser lives in input.board_parser.
 # BoardValidator lives in engine.board_validator.
 # All consumers depend on AbstractBoard only (Dependency Inversion).
 #

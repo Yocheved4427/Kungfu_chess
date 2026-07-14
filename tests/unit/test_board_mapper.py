@@ -1,5 +1,5 @@
 """
-Unit tests for engine/board_mapper.py
+Unit tests for input/board_mapper.py
 
 Scope: BoardMapper in isolation from GameEngine. This is the single
 component in the codebase that does pixel <-> (row, col) arithmetic —
@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from core.models import Position
-from engine.board_mapper import BoardMapper
+from input.board_mapper import BoardMapper
 
 
 class TestConstruction:

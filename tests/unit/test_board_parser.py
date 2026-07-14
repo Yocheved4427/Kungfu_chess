@@ -1,5 +1,5 @@
 """
-Unit tests for engine/board_parser.py
+Unit tests for input/board_parser.py
 
 Scope: BoardParser.parse() in isolation — a real BoardParser is constructed
 but no validator or I/O handler is involved.  The output type is checked
@@ -12,7 +12,7 @@ trailing blank lines.
 """
 
 from engine.board import AbstractBoard
-from engine.board_parser import BoardParser
+from input.board_parser import BoardParser
 
 
 class TestBoardParser:
