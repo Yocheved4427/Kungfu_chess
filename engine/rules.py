@@ -243,9 +243,10 @@ class PawnRule(MovementRule):
     ) -> bool:
         """The two-step advance is only legal from the colour's start row.
 
-        A colour's start row is the board edge it advances *away* from:
-        White's is the last row (``num_rows - 1``); Black's is row 0 —
-        the mirror image. One-/zero-step moves are unrestricted here.
+        A colour's start row is one row in front of the back rank it
+        advances *away* from: White's is ``num_rows - 2``; Black's is
+        row 1 — the mirror image. One-/zero-step moves are unrestricted
+        here.
         """
         if abs(to_pos.row - from_pos.row) != 2:
             return True

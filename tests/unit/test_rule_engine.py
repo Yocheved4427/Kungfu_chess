@@ -252,16 +252,16 @@ class TestPawnRule:
     # -- two-step advance ------------------------------------------------
 
     def test_white_two_step_from_start_row_is_legal(self):
-        board = _b(". .", ". .", ". .", "wP .")  # 4 rows: start row = 3
-        assert self.rule.is_legal_move("wP", Position(3, 0), Position(1, 0), board) is True
+        board = _b(". .", ". .", "wP .", ". .")  # 4 rows: start row = 2
+        assert self.rule.is_legal_move("wP", Position(2, 0), Position(0, 0), board) is True
 
     def test_white_two_step_off_start_row_is_illegal(self):
-        board = _b(". .", ". .", "wP .", ". .")
-        assert self.rule.is_legal_move("wP", Position(2, 0), Position(0, 0), board) is False
+        board = _b(". .", ". .", ". .", "wP .")
+        assert self.rule.is_legal_move("wP", Position(3, 0), Position(1, 0), board) is False
 
     def test_black_two_step_from_start_row_is_legal(self):
-        board = _b("bP .", ". .", ". .", ". .")  # start row = 0
-        assert self.rule.is_legal_move("bP", Position(0, 0), Position(2, 0), board) is True
+        board = _b(". .", "bP .", ". .", ". .")  # start row = 1
+        assert self.rule.is_legal_move("bP", Position(1, 0), Position(3, 0), board) is True
 
     def test_two_step_onto_occupied_destination_is_illegal(self):
         board = _b("bN .", ". .", "wP .", ". .")
@@ -370,9 +370,9 @@ class TestRuleEngineBlockedPath:
         assert result == MoveResult.BLOCKED_PATH
 
     def test_pawn_two_step_blocked_by_intermediate_piece(self):
-        board = _b(". .", ". .", "bN .", "wP .")  # blocker at the intermediate row
+        board = _b(". .", "bN .", "wP .", ". .")  # blocker at the intermediate row
         engine = RuleEngine()
-        result = engine.validate_move("wP", Position(3, 0), Position(1, 0), board)
+        result = engine.validate_move("wP", Position(2, 0), Position(0, 0), board)
         assert result == MoveResult.BLOCKED_PATH
 
     def test_knight_is_never_blocked(self):

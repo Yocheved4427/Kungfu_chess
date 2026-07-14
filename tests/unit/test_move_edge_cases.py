@@ -277,8 +277,8 @@ class TestBlockedPathPerPiece:
         assert result == MoveResult.BLOCKED_PATH
 
     def test_pawn_two_step_blocked_by_intermediate_piece(self):
-        board = _b(". .", ". .", "bN .", "wP .")  # blocker on the intermediate row
-        result = self.engine.validate_move("wP", Position(3, 0), Position(1, 0), board)
+        board = _b(". .", "bN .", "wP .", ". .")  # blocker on the intermediate row
+        result = self.engine.validate_move("wP", Position(2, 0), Position(0, 0), board)
         assert result == MoveResult.BLOCKED_PATH
 
     def test_knight_is_never_blocked_by_an_intermediate_piece(self):

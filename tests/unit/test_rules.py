@@ -299,8 +299,9 @@ class TestPawnRuleRequiresPathCheck:
 class TestPawnRuleValidWithBoard:
     """is_valid_with_board enforces the two-step advance's start-row rule.
 
-    A colour's start row is the board edge it advances *away* from — on
-    an 8-row board, White's start row is 7 (num_rows - 1); Black's is 0.
+    A colour's start row is one row in front of the back rank it
+    advances *away* from — on an 8-row board, White's start row is 6
+    (num_rows - 2); Black's is 1.
     """
 
     def setup_method(self):
@@ -318,22 +319,22 @@ class TestPawnRuleValidWithBoard:
 
     def test_white_two_step_from_start_row_is_allowed(self):
         assert self.rule.is_valid_with_board(
-            "wP", Position(7, 4), Position(5, 4), self.board
+            "wP", Position(6, 4), Position(4, 4), self.board
         ) is True
 
     def test_white_two_step_off_start_row_is_rejected(self):
         assert self.rule.is_valid_with_board(
-            "wP", Position(6, 4), Position(4, 4), self.board
+            "wP", Position(7, 4), Position(5, 4), self.board
         ) is False
 
     def test_black_two_step_from_start_row_is_allowed(self):
         assert self.rule.is_valid_with_board(
-            "bP", Position(0, 4), Position(2, 4), self.board
+            "bP", Position(1, 4), Position(3, 4), self.board
         ) is True
 
     def test_black_two_step_off_start_row_is_rejected(self):
         assert self.rule.is_valid_with_board(
-            "bP", Position(1, 4), Position(3, 4), self.board
+            "bP", Position(0, 4), Position(2, 4), self.board
         ) is False
 
     def test_one_step_move_is_unrestricted_regardless_of_row(self):
@@ -656,11 +657,11 @@ class TestMoveValidatorPawn:
         assert self.v.is_valid("wP", Position(1, 0), Position(0, 1), b) is False
 
     def test_white_two_steps_off_start_row_invalid(self):
-        """wP sits at row 2 of a 4-row board; White's start row (the edge
-        it advances away from) is num_rows - 1 = 3, so this pawn is NOT
-        on its start row."""
-        b = _b(". .", ". .", "wP .", ". .")
-        assert self.v.is_valid("wP", Position(2, 0), Position(0, 0), b) is False
+        """wP sits at row 3 (the back rank) of a 4-row board; White's
+        start row (one row in front of the back rank) is num_rows - 2 =
+        2, so this pawn is NOT on its start row."""
+        b = _b(". .", ". .", ". .", "wP .")
+        assert self.v.is_valid("wP", Position(3, 0), Position(1, 0), b) is False
 
     def test_white_backward_invalid(self):
         b = _b("wP .", ". .")
@@ -684,38 +685,39 @@ class TestMoveValidatorPawn:
 
 
 class TestMoveValidatorPawnTwoStep:
-    """Full-stack coverage of the two-step advance: start row (the board
-    edge a colour advances away from — num_rows-1 for White, 0 for
-    Black), clear path, and empty destination."""
+    """Full-stack coverage of the two-step advance: start row (one row
+    in front of the back rank a colour advances away from —
+    num_rows-2 for White, 1 for Black), clear path, and empty
+    destination."""
 
     def setup_method(self):
         self.v = MoveValidator()
 
     def test_white_two_steps_from_start_row_with_clear_path_valid(self):
-        b = _b(". .", ". .", ". .", "wP .")  # 4 rows: start row = 4-1 = 3
-        assert self.v.is_valid("wP", Position(3, 0), Position(1, 0), b) is True
+        b = _b(". .", ". .", "wP .", ". .")  # 4 rows: start row = 4-2 = 2
+        assert self.v.is_valid("wP", Position(2, 0), Position(0, 0), b) is True
 
     def test_white_two_steps_blocked_by_intermediate_piece_invalid(self):
-        b = _b(". .", ". .", "bN .", "wP .")
-        assert self.v.is_valid("wP", Position(3, 0), Position(1, 0), b) is False
+        b = _b(". .", "bN .", "wP .", ". .")
+        assert self.v.is_valid("wP", Position(2, 0), Position(0, 0), b) is False
 
     def test_white_two_steps_onto_occupied_destination_invalid(self):
-        b = _b(". .", "bN .", ". .", "wP .")
-        assert self.v.is_valid("wP", Position(3, 0), Position(1, 0), b) is False
+        b = _b("bN .", ". .", "wP .", ". .")
+        assert self.v.is_valid("wP", Position(2, 0), Position(0, 0), b) is False
 
     def test_black_two_steps_from_start_row_with_clear_path_valid(self):
-        b = _b("bP .", ". .", ". .", ". .")  # start row = 0
-        assert self.v.is_valid("bP", Position(0, 0), Position(2, 0), b) is True
+        b = _b(". .", "bP .", ". .", ". .")  # start row = 1
+        assert self.v.is_valid("bP", Position(1, 0), Position(3, 0), b) is True
 
     def test_black_two_steps_blocked_by_intermediate_piece_invalid(self):
-        b = _b("bP .", "wN .", ". .", ". .")
-        assert self.v.is_valid("bP", Position(0, 0), Position(2, 0), b) is False
+        b = _b(". .", "bP .", "wN .", ". .")
+        assert self.v.is_valid("bP", Position(1, 0), Position(3, 0), b) is False
 
     def test_two_steps_after_pawn_already_advanced_once_invalid(self):
         """Once off its start row, a pawn can never two-step again —
         exactly the real "en passant window" chess rule, minus en passant
         itself (not requested)."""
-        b = _b(". .", ". .", "wP .", ". .")  # start row = 3; pawn sits at 2
+        b = _b(". .", ". .", "wP .", ". .", ". .")  # 5 rows: start row = 3; pawn sits at 2
         assert self.v.is_valid("wP", Position(2, 0), Position(0, 0), b) is False
 
 

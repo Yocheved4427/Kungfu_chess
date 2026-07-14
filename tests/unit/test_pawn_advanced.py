@@ -25,42 +25,42 @@ from engine.game import GameEngine
 
 class TestTwoStepAdvanceViaEngine:
     def test_white_two_step_from_start_row_is_queued_and_executes(self):
-        # 5 rows: White's start row (the edge it advances away from) is
-        # num_rows - 1 = 4; lands on row 2, which is NOT the back rank
-        # (row 0) — isolated from promotion.
-        board = TextBoard([". .", ". .", ". .", ". .", "wP ."])
+        # 5 rows: White's start row (one row in front of the back rank
+        # it advances away from) is num_rows - 2 = 3; lands on row 1,
+        # which is NOT the back rank (row 0) — isolated from promotion.
+        board = TextBoard([". .", ". .", ". .", "wP .", ". ."])
         engine = GameEngine(board, cell_size=100, move_duration=500)
-        engine.handle_click(0, 400)  # select wP at (4,0)
-        engine.handle_click(0, 200)  # two-step to (2,0)
+        engine.handle_click(0, 300)  # select wP at (3,0)
+        engine.handle_click(0, 100)  # two-step to (1,0)
         assert len(engine._pending) == 1
         engine.tick(1000)  # Chebyshev distance 2 * 500ms
-        assert engine.board.get_piece_at(Position(2, 0)) == "wP"
-        assert engine.board.get_piece_at(Position(4, 0)) == "."
+        assert engine.board.get_piece_at(Position(1, 0)) == "wP"
+        assert engine.board.get_piece_at(Position(3, 0)) == "."
 
     def test_black_two_step_from_start_row_is_queued_and_executes(self):
-        # 5 rows: Black's start row is always 0; lands on row 2, which is
+        # 5 rows: Black's start row is always 1; lands on row 3, which is
         # NOT the back rank (row num_rows-1 = 4) — isolated from promotion.
-        board = TextBoard(["bP .", ". .", ". .", ". .", ". ."])
+        board = TextBoard([". .", "bP .", ". .", ". .", ". ."])
         engine = GameEngine(board, cell_size=100, move_duration=500)
-        engine.handle_click(0, 0)    # select bP at (0,0)
-        engine.handle_click(0, 200)  # two-step to (2,0)
+        engine.handle_click(0, 100)  # select bP at (1,0)
+        engine.handle_click(0, 300)  # two-step to (3,0)
         engine.tick(1000)
-        assert engine.board.get_piece_at(Position(2, 0)) == "bP"
+        assert engine.board.get_piece_at(Position(3, 0)) == "bP"
 
     def test_two_step_off_start_row_is_not_queued(self):
-        # 4 rows: White's start row = 3; pawn sits at 2, one off it.
-        board = TextBoard([". .", ". .", "wP .", ". ."])
+        # 4 rows: White's start row = 2; pawn sits at 3 (the back rank), one off it.
+        board = TextBoard([". .", ". .", ". .", "wP ."])
         engine = GameEngine(board, cell_size=100, move_duration=500)
-        engine.handle_click(0, 200)  # select wP at (2,0)
-        engine.handle_click(0, 0)    # attempt two-step to (0,0) — off start row
+        engine.handle_click(0, 300)  # select wP at (3,0)
+        engine.handle_click(0, 100)  # attempt two-step to (1,0) — off start row
         assert engine._pending == []
         assert engine.selection is None
 
     def test_two_step_blocked_by_intermediate_piece_is_not_queued(self):
-        board = TextBoard([". .", ". .", "bN .", "wP ."])  # wP on start row = 3
+        board = TextBoard([". .", "bN .", "wP .", ". ."])  # wP on start row = 2
         engine = GameEngine(board, cell_size=100, move_duration=500)
-        engine.handle_click(0, 300)  # select wP at (3,0)
-        engine.handle_click(0, 100)  # attempt two-step through blocked (2,0)
+        engine.handle_click(0, 200)  # select wP at (2,0)
+        engine.handle_click(0, 0)    # attempt two-step through blocked (1,0)
         assert engine._pending == []
 
     def test_two_step_path_becomes_blocked_before_arrival_is_dropped(self):

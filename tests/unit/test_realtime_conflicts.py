@@ -322,16 +322,16 @@ class TestFriendlyMidRouteBlock:
         square; a friendly piece there leaves nowhere to stop short of
         the origin, so the pawn simply never advances.
 
-        4-row board: White's start row is num_rows - 1 = 3, so wP starts
-        there; wN sits on the (only) intermediate square, (2,0)."""
-        board = TextBoard([". . .", ". . .", "wN . .", "wP . ."])
+        4-row board: White's start row is num_rows - 2 = 2, so wP starts
+        there; wN sits on the (only) intermediate square, (1,0)."""
+        board = TextBoard([". . .", "wN . .", "wP . .", ". . ."])
         engine = GameEngine(board, cell_size=100, move_duration=1000)
-        engine.handle_click(0, 300)    # select wP at (3,0), on its start row
-        engine.handle_click(0, 100)    # queue two-step to (1,0), path clear right now
+        engine.handle_click(0, 200)    # select wP at (2,0), on its start row
+        engine.handle_click(0, 0)      # queue two-step to (0,0), path clear right now
         engine.tick(2000)
-        assert engine.board.get_piece_at(Position(3, 0)) == "wP"  # never advanced
-        assert engine.board.get_piece_at(Position(2, 0)) == "wN"  # blocker unmoved
-        assert engine.board.get_piece_at(Position(1, 0)) == "."
+        assert engine.board.get_piece_at(Position(2, 0)) == "wP"  # never advanced
+        assert engine.board.get_piece_at(Position(1, 0)) == "wN"  # blocker unmoved
+        assert engine.board.get_piece_at(Position(0, 0)) == "."
 
     def test_second_rook_stops_behind_wherever_the_first_one_lands(self):
         """Rook A (0,0) queues a short 2-cell move to (0,2). Rook B (0,4)

@@ -99,15 +99,15 @@ class TestPawnDirection:
 
 
 class TestPawnStartRow:
-    def test_white_start_row_is_the_last_row(self):
-        assert pawn_start_row("wP", num_rows=8) == 7
+    def test_white_start_row_is_one_in_front_of_the_last_row(self):
+        assert pawn_start_row("wP", num_rows=8) == 6
 
-    def test_black_start_row_is_row_zero(self):
-        assert pawn_start_row("bP", num_rows=8) == 0
+    def test_black_start_row_is_row_one(self):
+        assert pawn_start_row("bP", num_rows=8) == 1
 
     def test_scales_with_board_height(self):
-        assert pawn_start_row("wP", num_rows=4) == 3
-        assert pawn_start_row("bP", num_rows=4) == 0
+        assert pawn_start_row("wP", num_rows=4) == 2
+        assert pawn_start_row("bP", num_rows=4) == 1
 
 
 class TestPathClear:

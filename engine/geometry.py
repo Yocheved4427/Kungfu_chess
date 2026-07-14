@@ -66,10 +66,10 @@ def pawn_direction(piece: str) -> int:
 
 
 def pawn_start_row(piece: str, num_rows: int) -> int:
-    """The board row a Pawn's colour starts on — the edge it advances
-    *away* from: the last row (``num_rows - 1``) for White, row 0 for
-    Black. Only relevant to the two-step advance."""
-    return num_rows - 1 if piece[0] == "w" else 0
+    """The board row a Pawn's colour starts on — one row in front of the
+    back rank it advances *away* from: ``num_rows - 2`` for White, row 1
+    for Black. Only relevant to the two-step advance."""
+    return num_rows - 2 if piece[0] == "w" else 1
 
 
 def path_clear(board: AbstractBoard, from_pos: Position, to_pos: Position) -> bool:

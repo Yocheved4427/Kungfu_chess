@@ -184,11 +184,12 @@ class PawnRule(IPieceRule):
       Forward move     ``d_row == direction, d_col == 0``
                         -> destination must be strictly empty.
       Two-step advance ``d_row == 2*direction, d_col == 0``
-                        -> ONLY from the colour's start row (the board
-                        edge it advances away from: ``num_rows - 1`` for
-                        White, ``0`` for Black), destination strictly
-                        empty. This is the only Pawn move that can be
-                        blocked mid-flight — see ``requires_path_check``.
+                        -> ONLY from the colour's start row (one row in
+                        front of the back rank it advances away from:
+                        ``num_rows - 2`` for White, ``1`` for Black),
+                        destination strictly empty. This is the only
+                        Pawn move that can be blocked mid-flight — see
+                        ``requires_path_check``.
       Diagonal capture ``d_row == direction, abs(d_col) == 1``
                         -> ONLY onto a square occupied by an enemy piece
                         (friendly-fire is still cross-checked generically
