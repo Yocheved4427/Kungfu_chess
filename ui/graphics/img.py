@@ -8,7 +8,7 @@ import numpy as np
 class Img:
     def __init__(self):
         self.img = None
-
+    
     def read(self, path: str | pathlib.Path,
              size: tuple[int, int] | None = None,
              keep_aspect: bool = False,
@@ -35,7 +35,10 @@ class Img:
             `self`, so you can chain:  `sprite = Img().read("foo.png", (64,64))`
         """
         path = str(path)
-        self.img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+        # cv2.imread can't open paths containing non-ASCII characters on
+        # Windows; np.fromfile + cv2.imdecode reads the bytes via a path API
+        # that handles them correctly, then decodes in memory.
+        self.img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
         if self.img is None:
             raise FileNotFoundError(f"Cannot load image: {path}")
 

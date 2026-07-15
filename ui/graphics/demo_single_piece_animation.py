@@ -8,8 +8,9 @@ from asset_loader import AssetLoader
 from img import Img
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-BOARD_PATH = REPO_ROOT / "board.png"
-ASSETS_ROOT = REPO_ROOT / "pieces2"
+ASSETS_BASE = REPO_ROOT / "assets"
+BOARD_PATH = ASSETS_BASE / "board.png"
+ASSETS_ROOT = ASSETS_BASE / "pieces2"
 PIECE_CODE = "BB"
 STATE_NAME = "idle"
 

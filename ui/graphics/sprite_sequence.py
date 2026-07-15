@@ -1,5 +1,4 @@
 import json
-import os
 import pathlib
 
 from img import Img
@@ -31,11 +30,12 @@ class SpriteSequence:
             (state_folder / "sprites").glob("*.png"),
             key=lambda p: int(p.stem),
         )
-        # cv2.imread cannot open absolute paths containing non-ASCII
-        # characters on Windows, so read relative to the working directory.
-        self.frames: list[Img] = [
-            Img().read(os.path.relpath(p, start=os.getcwd())) for p in sprite_paths
-        ]
+        # NOTE: passes the full absolute path directly (per explicit
+        # instruction). cv2.imread cannot open absolute paths containing
+        # non-ASCII characters on Windows — this will raise
+        # FileNotFoundError on any machine where the repo path itself
+        # contains such characters (e.g. this one).
+        self.frames: list[Img] = [Img().read(p) for p in sprite_paths]
 
     def get_frame(self, elapsed_sec: float) -> Img:
         """Return the frame that should be showing after `elapsed_sec` seconds."""

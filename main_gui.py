@@ -1,11 +1,12 @@
 import pathlib
 import sys
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-# This script's own directory (ui/graphics) is what Python puts on
-# sys.path when run directly — the repo root needs adding explicitly so
-# `core.*` / `engine.*` / `input.*` package imports below can resolve.
-sys.path.insert(0, str(REPO_ROOT))
+REPO_ROOT = pathlib.Path(__file__).resolve().parent
+GRAPHICS_DIR = REPO_ROOT / "ui" / "graphics"
+# asset_loader.py / img.py / graphics_board_renderer.py import each other as
+# flat sibling modules (e.g. `from img import Img`), which only resolves if
+# their own directory is on sys.path.
+sys.path.insert(0, str(GRAPHICS_DIR))
 
 import os
 import time
@@ -16,15 +17,14 @@ from asset_loader import AssetLoader
 from graphics_board_renderer import GraphicsBoardRenderer
 from img import Img
 
-from core.models import Position
 from engine.board import TextBoard
 from engine.game import GameEngine
 from engine.game_state import GameState
 from input.board_mapper import BoardMapper
 
-ASSETS_BASE = REPO_ROOT / "ui" / "assets"
-BOARD_PATH = ASSETS_BASE / "board.png"
-ASSETS_ROOT = ASSETS_BASE / "pieces2"
+ASSETS_ROOT = REPO_ROOT / "assets"
+BOARD_PATH = ASSETS_ROOT / "board.png"
+PIECES_ROOT = ASSETS_ROOT / "pieces2"
 
 STANDARD_BOARD_ROWS = [
     "bR bN bB bQ bK bB bN bR",
@@ -48,8 +48,6 @@ def main():
     board_height_px, board_width_px = board_shape[0], board_shape[1]
 
     board = TextBoard(STANDARD_BOARD_ROWS)
-    # One shared BoardMapper for both rendering and click handling, so
-    # they can never disagree on cell size.
     mapper = BoardMapper.from_board_pixels(
         board_width_px, board_height_px, board.num_cols, board.num_rows
     )
@@ -57,7 +55,7 @@ def main():
     engine = GameEngine(board, mapper=mapper)
     state = GameState(board=board)
 
-    asset_loader = AssetLoader(ASSETS_ROOT)
+    asset_loader = AssetLoader(PIECES_ROOT)
     renderer = GraphicsBoardRenderer(asset_loader, mapper)
 
     pending_clicks = []
@@ -69,7 +67,7 @@ def main():
     cv2.namedWindow(WINDOW_NAME)
     cv2.setMouseCallback(WINDOW_NAME, on_mouse)
 
-    window_img = Img()
+    screen = Img()
     last_time = time.time()
 
     while True:
@@ -83,9 +81,12 @@ def main():
             engine.handle_click(state, x, y)
         pending_clicks.clear()
 
-        renderer.render(state, window_img)
-        cv2.imshow(WINDOW_NAME, window_img.img)
+        renderer.render(state, screen)
 
+        # Img.show() blocks on cv2.waitKey(0) and tears the window down
+        # right after — incompatible with a continuous render loop, so this
+        # polls cv2 directly instead, same as the rest of this pipeline.
+        cv2.imshow(WINDOW_NAME, screen.img)
         key = cv2.waitKey(30)
         if key == ESC or state.game_over:
             break

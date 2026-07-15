@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import pathlib
 from typing import TYPE_CHECKING
 
@@ -13,7 +12,7 @@ if TYPE_CHECKING:
     from engine.game_state import GameState
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-BOARD_PATH = REPO_ROOT / "board.png"
+BOARD_PATH = REPO_ROOT / "assets" / "board.png"
 
 
 class GraphicsBoardRenderer:
@@ -31,9 +30,12 @@ class GraphicsBoardRenderer:
     def __init__(self, asset_loader: AssetLoader, mapper: BoardMapper):
         self._asset_loader = asset_loader
         self._mapper = mapper
-        # cv2.imread cannot open absolute paths containing non-ASCII
-        # characters on Windows, so read relative to the working directory.
-        self._board_template = Img().read(os.path.relpath(BOARD_PATH, start=os.getcwd()))
+        # NOTE: passes the full absolute path directly (per explicit
+        # instruction). cv2.imread cannot open absolute paths containing
+        # non-ASCII characters on Windows — this will raise
+        # FileNotFoundError on any machine where the repo path itself
+        # contains such characters (e.g. this one).
+        self._board_template = Img().read(BOARD_PATH)
 
     def render(self, game_state: "GameState", window_img: Img) -> None:
         window_img.img = self._board_template.img.copy()
