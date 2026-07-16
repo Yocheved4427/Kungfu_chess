@@ -1,4 +1,3 @@
-import os
 import pathlib
 
 from img import Img
@@ -13,10 +12,8 @@ PIECE_Y = 50
 
 
 def main():
-    # cv2.imread cannot open absolute paths containing non-ASCII characters
-    # on Windows, so read relative to the working directory.
-    board = Img().read(os.path.relpath(BOARD_PATH, start=os.getcwd()))
-    piece = Img().read(os.path.relpath(PIECE_PATH, start=os.getcwd()))
+    board = Img().read(BOARD_PATH)
+    piece = Img().read(PIECE_PATH)
 
     piece.draw_on(board, PIECE_X, PIECE_Y)
     board.show()

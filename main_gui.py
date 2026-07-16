@@ -8,7 +8,6 @@ GRAPHICS_DIR = REPO_ROOT / "ui" / "graphics"
 # their own directory is on sys.path.
 sys.path.insert(0, str(GRAPHICS_DIR))
 
-import os
 import time
 
 import cv2
@@ -42,9 +41,7 @@ ESC = 27
 
 
 def main():
-    # cv2.imread cannot open absolute paths containing non-ASCII characters
-    # on Windows, so read relative to the working directory.
-    board_shape = Img().read(os.path.relpath(BOARD_PATH, start=os.getcwd())).img.shape
+    board_shape = Img().read(BOARD_PATH).img.shape
     board_height_px, board_width_px = board_shape[0], board_shape[1]
 
     board = TextBoard(STANDARD_BOARD_ROWS)

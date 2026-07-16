@@ -1,4 +1,3 @@
-import os
 import pathlib
 import time
 
@@ -34,9 +33,7 @@ def main():
     states = loader.load(PIECE_CODE)
     idle = states[STATE_NAME]
 
-    # cv2.imread cannot open absolute paths containing non-ASCII characters
-    # on Windows, so read relative to the working directory.
-    board = Img().read(os.path.relpath(BOARD_PATH, start=os.getcwd()))
+    board = Img().read(BOARD_PATH)
 
     start = time.time()
     while time.time() - start < DURATION_SEC:

@@ -1,4 +1,3 @@
-import os
 import pathlib
 
 import cv2
@@ -33,9 +32,7 @@ def main():
     states = loader.load(PIECE_CODE)
     machine = PieceStateMachine(states, start_state="idle")
 
-    # cv2.imread cannot open absolute paths containing non-ASCII characters
-    # on Windows, so read relative to the working directory.
-    board = Img().read(os.path.relpath(BOARD_PATH, start=os.getcwd()))
+    board = Img().read(BOARD_PATH)
 
     last_state = machine.current_state
     print(f"state: {last_state}")
