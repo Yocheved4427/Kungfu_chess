@@ -3,6 +3,8 @@ from __future__ import annotations
 import pathlib
 from typing import TYPE_CHECKING
 
+import cv2
+
 from asset_loader import AssetLoader
 from core.models import Position
 from img import Img
@@ -47,10 +49,20 @@ class GraphicsBoardRenderer:
                 if piece is None or piece == ".":
                     continue
 
-                # Engine tokens are [color][piece] (e.g. "wK"); asset
-                # folders are named [piece][color] (e.g. "KW").
-                asset_code = piece[1] + piece[0].upper()
-                frame = self._asset_loader.get_asset(asset_code, "idle")["frames"][0]
+                # Engine tokens (e.g. "wK") and pieces3 asset folder names
+                # use the same [color][piece] convention, so no translation
+                # is needed here (unlike the old pieces1/pieces2 layout).
+                frame = self._asset_loader.get_asset(piece, "idle")["frames"][0]
+
+                # Sprites are stored at their native resolution, which does
+                # not generally match the board's cell size, so scale a
+                # copy rather than mutating (and thereby corrupting) the
+                # cached frame that other cells/renders will reuse.
+                cell_size = self._mapper.cell_size
+                scaled = Img()
+                scaled.img = cv2.resize(
+                    frame.img, (cell_size, cell_size), interpolation=cv2.INTER_AREA
+                )
 
                 x, y = self._mapper.cell_to_pixel(row, col)
-                frame.draw_on(window_img, x, y)
+                scaled.draw_on(window_img, x, y)

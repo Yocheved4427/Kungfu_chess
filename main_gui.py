@@ -24,7 +24,7 @@ from input.board_mapper import BoardMapper
 
 ASSETS_ROOT = REPO_ROOT / "assets"
 BOARD_PATH = ASSETS_ROOT / "board.png"
-PIECES_ROOT = ASSETS_ROOT / "pieces2"
+PIECES_ROOT = ASSETS_ROOT / "pieces3"
 
 STANDARD_BOARD_ROWS = [
     "bR bN bB bQ bK bB bN bR",
