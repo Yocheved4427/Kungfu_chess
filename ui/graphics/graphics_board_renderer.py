@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pathlib
 from typing import TYPE_CHECKING
 
 import cv2
@@ -9,11 +8,11 @@ from asset_loader import AssetLoader
 from core.models import Position
 from img import Img
 from input.board_mapper import BoardMapper
+from paths import REPO_ROOT
 
 if TYPE_CHECKING:
     from engine.game_state import GameState
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 BOARD_PATH = REPO_ROOT / "assets" / "board.png"
 
 

@@ -1,12 +1,10 @@
-import pathlib
-
 import cv2
 
 from asset_loader import AssetLoader
 from img import Img
+from paths import REPO_ROOT
 from piece_state_machine import PieceStateMachine
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 ASSETS_BASE = REPO_ROOT / "assets"
 BOARD_PATH = ASSETS_BASE / "board.png"
 ASSETS_ROOT = ASSETS_BASE / "pieces2"

@@ -1,8 +1,6 @@
-import pathlib
-
 from img import Img
+from paths import REPO_ROOT
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 ASSETS_ROOT = REPO_ROOT / "assets"
 BOARD_PATH = ASSETS_ROOT / "board.png"
 PIECE_PATH = ASSETS_ROOT / "pieces1" / "BB" / "states" / "idle" / "sprites" / "1.png"
