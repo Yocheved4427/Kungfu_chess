@@ -19,6 +19,7 @@ from img import Img
 from engine.board import TextBoard
 from engine.game import GameEngine
 from engine.game_state import GameState
+from engine.snapshot import GameSnapshot
 from input.board_mapper import BoardMapper
 
 ASSETS_ROOT = REPO_ROOT / "assets"
@@ -78,7 +79,8 @@ def main():
             engine.handle_click(state, x, y)
         pending_clicks.clear()
 
-        renderer.render(state, screen)
+        snapshot = GameSnapshot.from_state(state)
+        renderer.render(snapshot, screen)
 
         # Img.show() blocks on cv2.waitKey(0) and tears the window down
         # right after — incompatible with a continuous render loop, so this

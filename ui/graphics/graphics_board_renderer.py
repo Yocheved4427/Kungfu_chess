@@ -11,18 +11,22 @@ from input.board_mapper import BoardMapper
 from paths import REPO_ROOT
 
 if TYPE_CHECKING:
-    from engine.game_state import GameState
+    from engine.snapshot import GameSnapshot
 
 BOARD_PATH = REPO_ROOT / "assets" / "board.png"
 
 
 class GraphicsBoardRenderer:
-    """Draws a ``GameState``'s board onto a window canvas via ``Img``.
+    """Draws a ``GameSnapshot``'s board onto a window canvas via ``Img``.
 
     Named distinctly from ``engine.board_renderer.BoardRenderer`` (which
     returns a rendered string from a bare ``AbstractBoard``) rather than
-    implementing that interface — this renderer needs the full
-    ``GameState`` and produces pixels as a side effect, not a string.
+    implementing that interface — this renderer needs the full snapshot
+    and produces pixels as a side effect, not a string.
+
+    Takes a ``GameSnapshot`` rather than a live ``GameState`` — the UI
+    layer only ever reads a frozen, point-in-time view (see
+    ``engine.snapshot``), never the engine's mutable internals.
 
     For this initial sync step every occupied cell is drawn with its
     idle state's first frame — no animation timing yet.
@@ -38,20 +42,21 @@ class GraphicsBoardRenderer:
         # contains such characters (e.g. this one).
         self._board_template = Img().read(BOARD_PATH)
 
-    def render(self, game_state: "GameState", window_img: Img) -> None:
+    def render(self, game_snapshot: "GameSnapshot", window_img: Img) -> None:
         window_img.img = self._board_template.img.copy()
 
-        board = game_state.board
+        board = game_snapshot.board
         for row in range(board.num_rows):
             for col in range(board.num_cols):
                 piece = board.get_piece_at(Position(row=row, col=col))
-                if piece is None or piece == ".":
+                if piece is None:
                     continue
 
                 # Engine tokens (e.g. "wK") and pieces3 asset folder names
                 # use the same [color][piece] convention, so no translation
                 # is needed here (unlike the old pieces1/pieces2 layout).
-                frame = self._asset_loader.get_asset(piece, "idle")["frames"][0]
+                token = piece.color.value + piece.kind
+                frame = self._asset_loader.get_asset(token, "idle")["frames"][0]
 
                 # Sprites are stored at their native resolution, which does
                 # not generally match the board's cell size, so scale a
