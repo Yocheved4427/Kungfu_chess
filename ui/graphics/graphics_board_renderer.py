@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict
 
 import cv2
 
@@ -9,9 +9,11 @@ from core.models import Position
 from img import Img
 from input.board_mapper import BoardMapper
 from paths import REPO_ROOT
+from piece_state_machine import PieceStateMachine
+from piece_view import PieceView
 
 if TYPE_CHECKING:
-    from engine.snapshot import GameSnapshot
+    from engine.snapshot import BoardSnapshot, GameSnapshot
 
 BOARD_PATH = REPO_ROOT / "assets" / "board.png"
 
@@ -28,13 +30,17 @@ class GraphicsBoardRenderer:
     layer only ever reads a frozen, point-in-time view (see
     ``engine.snapshot``), never the engine's mutable internals.
 
-    For this initial sync step every occupied cell is drawn with its
-    idle state's first frame — no animation timing yet.
+    Owns one ``PieceView`` per occupied cell, kept in ``_piece_views``
+    across calls (rebuilt, not recreated, each ``render()`` — see
+    ``_sync_piece_views``) so each piece's ``PieceStateMachine`` keeps
+    its animation timing between frames rather than restarting at frame
+    0 on every render.
     """
 
     def __init__(self, asset_loader: AssetLoader, mapper: BoardMapper):
         self._asset_loader = asset_loader
         self._mapper = mapper
+        self._piece_views: Dict[Position, PieceView] = {}
         # NOTE: passes the full absolute path directly (per explicit
         # instruction). cv2.imread cannot open absolute paths containing
         # non-ASCII characters on Windows — this will raise
@@ -45,28 +51,62 @@ class GraphicsBoardRenderer:
     def render(self, game_snapshot: "GameSnapshot", window_img: Img) -> None:
         window_img.img = self._board_template.img.copy()
 
-        board = game_snapshot.board
+        self._sync_piece_views(game_snapshot.board)
+
+        cell_size = self._mapper.cell_size
+        for position, view in self._piece_views.items():
+            frame = view.get_current_frame()
+
+            # Sprites are stored at their native resolution, which does
+            # not generally match the board's cell size, so scale a
+            # copy rather than mutating (and thereby corrupting) the
+            # cached frame that other cells/renders will reuse.
+            scaled = Img()
+            scaled.img = cv2.resize(
+                frame.img, (cell_size, cell_size), interpolation=cv2.INTER_AREA
+            )
+
+            x, y = self._mapper.cell_to_pixel(position.row, position.col)
+            scaled.draw_on(window_img, x, y)
+
+    def _sync_piece_views(self, board: "BoardSnapshot") -> None:
+        """Rebuild ``_piece_views`` for *board*'s current occupancy.
+
+        A cell whose piece is unchanged from the last sync reuses (and
+        syncs) its existing ``PieceView``, so its animation timing
+        carries over. A cell that's newly occupied — including one
+        whose previous occupant was just captured, since the capturing
+        piece overwrites that cell's token rather than leaving it
+        briefly empty — gets a fresh ``PieceView`` starting at "idle".
+        A ``PieceView`` for a cell that's no longer occupied is simply
+        not carried into the new collection (dropped).
+        """
+        new_views: Dict[Position, PieceView] = {}
         for row in range(board.num_rows):
             for col in range(board.num_cols):
-                piece = board.get_piece_at(Position(row=row, col=col))
+                position = Position(row=row, col=col)
+                piece = board.get_piece_at(position)
                 if piece is None:
                     continue
 
-                # Engine tokens (e.g. "wK") and pieces3 asset folder names
-                # use the same [color][piece] convention, so no translation
-                # is needed here (unlike the old pieces1/pieces2 layout).
-                token = piece.color.value + piece.kind
-                frame = self._asset_loader.get_asset(token, "idle")["frames"][0]
+                existing = self._piece_views.get(position)
+                if (
+                    existing is not None
+                    and existing.snapshot is not None
+                    and existing.snapshot.color == piece.color
+                    and existing.snapshot.kind == piece.kind
+                ):
+                    view = existing
+                else:
+                    # Engine tokens (e.g. "wK") and pieces3 asset folder
+                    # names use the same [color][piece] convention, so no
+                    # translation is needed here (unlike the old
+                    # pieces1/pieces2 layout).
+                    token = piece.color.value + piece.kind
+                    states = self._asset_loader.load(token)
+                    view = PieceView(PieceStateMachine(states, start_state="idle"))
 
-                # Sprites are stored at their native resolution, which does
-                # not generally match the board's cell size, so scale a
-                # copy rather than mutating (and thereby corrupting) the
-                # cached frame that other cells/renders will reuse.
-                cell_size = self._mapper.cell_size
-                scaled = Img()
-                scaled.img = cv2.resize(
-                    frame.img, (cell_size, cell_size), interpolation=cv2.INTER_AREA
-                )
+                view.sync(piece)
+                new_views[position] = view
 
-                x, y = self._mapper.cell_to_pixel(row, col)
-                scaled.draw_on(window_img, x, y)
+        self._piece_views = new_views
