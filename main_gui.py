@@ -8,6 +8,8 @@ GRAPHICS_DIR = REPO_ROOT / "ui" / "graphics"
 # their own directory is on sys.path.
 sys.path.insert(0, str(GRAPHICS_DIR))
 
+import argparse
+import logging
 import time
 
 import cv2
@@ -16,12 +18,17 @@ from asset_loader import AssetLoader
 from graphics_board_renderer import GraphicsBoardRenderer
 from img import Img
 
-from engine.board import TextBoard
+from core.config import VALID_PIECE_CHARS
+from engine.board import AbstractBoard, TextBoard
+from engine.board_validator import BoardValidationError, BoardValidator
 from engine.game import GameEngine
 from engine.game_state import GameState
 from engine.snapshot import GameSnapshot
 from input.board_mapper import BoardMapper
+from input.board_parser import BoardParser
 from logger_config import setup_logging
+
+logger = logging.getLogger(__name__)
 
 ASSETS_ROOT = REPO_ROOT / "assets"
 BOARD_PATH = ASSETS_ROOT / "board.png"
@@ -42,13 +49,56 @@ WINDOW_NAME = "Kung Fu Chess"
 ESC = 27
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Kung Fu Chess GUI")
+    parser.add_argument(
+        "--board",
+        type=pathlib.Path,
+        default=None,
+        help=(
+            "Path to a text file with a custom starting board layout "
+            "(same row format as STANDARD_BOARD_ROWS). Falls back to the "
+            "standard layout if omitted, unreadable, or invalid."
+        ),
+    )
+    return parser.parse_args()
+
+
+def _load_board(board_path: "pathlib.Path | None") -> AbstractBoard:
+    """Return the board to start the game with.
+
+    Parses and validates *board_path* via the same ``BoardParser`` /
+    ``BoardValidator`` pair ``main.py`` uses for the CLI pipeline — no
+    second parser. Falls back to ``STANDARD_BOARD_ROWS`` (with a logged
+    warning) if *board_path* is ``None``, unreadable, or fails
+    validation; never raises.
+    """
+    if board_path is None:
+        return TextBoard(STANDARD_BOARD_ROWS)
+
+    try:
+        with open(board_path, "r") as f:
+            lines = f.readlines()
+        board = BoardParser().parse(lines)
+        BoardValidator(valid_chars=VALID_PIECE_CHARS).validate(board.get_rows())
+        return board
+    except (OSError, BoardValidationError) as e:
+        logger.warning(
+            "Failed to load board from %s (%s) — falling back to the standard starting layout.",
+            board_path,
+            e,
+        )
+        return TextBoard(STANDARD_BOARD_ROWS)
+
+
 def main():
     setup_logging()
+    args = _parse_args()
 
     board_shape = Img().read(BOARD_PATH).img.shape
     board_height_px, board_width_px = board_shape[0], board_shape[1]
 
-    board = TextBoard(STANDARD_BOARD_ROWS)
+    board = _load_board(args.board)
     mapper = BoardMapper.from_board_pixels(
         board_width_px, board_height_px, board.num_cols, board.num_rows
     )
