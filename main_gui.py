@@ -21,6 +21,7 @@ from engine.game import GameEngine
 from engine.game_state import GameState
 from engine.snapshot import GameSnapshot
 from input.board_mapper import BoardMapper
+from logger_config import setup_logging
 
 ASSETS_ROOT = REPO_ROOT / "assets"
 BOARD_PATH = ASSETS_ROOT / "board.png"
@@ -42,6 +43,8 @@ ESC = 27
 
 
 def main():
+    setup_logging()
+
     board_shape = Img().read(BOARD_PATH).img.shape
     board_height_px, board_width_px = board_shape[0], board_shape[1]
 

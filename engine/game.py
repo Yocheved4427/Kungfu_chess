@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import List
 
 from controllers.click_controller import ClickController
@@ -23,6 +24,8 @@ from ui.events import (
     RenderEvent,
     TimeAdvancedEvent,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Kung Fu Chess – Game Engine (Iteration 15: Fully stateless GameEngine)
@@ -438,6 +441,7 @@ class GameEngine:
         Then a ``TimeAdvancedEvent`` is broadcast.
         """
         state.current_time += ms
+        logger.debug("tick: +%dms -> current_time=%dms", ms, state.current_time)
 
         due: List[PendingMove] = []
         remaining: List[PendingMove] = []
@@ -629,6 +633,7 @@ class GameEngine:
             return
         state.game_over = True
         state.winner = result.winner
+        logger.info("Game over: winner=%s", state.winner)
         self._notify(GameOverEvent(winner=state.winner))
 
     @staticmethod

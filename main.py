@@ -5,10 +5,13 @@ from core.config import CELL_SIZE, VALID_PIECE_CHARS
 from engine.board_validator import BoardValidator, BoardValidationError
 from engine.game import GameEngine
 from input.board_parser import BoardParser
+from logger_config import setup_logging
 from ui.io_handler import ChessIOHandler
 
 
 def main() -> None:
+    setup_logging()
+
     parser = BoardParser()
     validator = BoardValidator(valid_chars=VALID_PIECE_CHARS)
 

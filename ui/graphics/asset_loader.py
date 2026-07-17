@@ -1,6 +1,9 @@
+import logging
 import pathlib
 
 from sprite_sequence import SpriteSequence
+
+logger = logging.getLogger(__name__)
 
 
 class AssetLoader:
@@ -17,6 +20,7 @@ class AssetLoader:
         cached result.
         """
         if piece_code not in self._cache:
+            logger.info("Loading assets for piece_code=%s from %s", piece_code, self.assets_root)
             states_folder = self.assets_root / piece_code / "states"
             self._cache[piece_code] = {
                 state_folder.name: SpriteSequence(state_folder)
