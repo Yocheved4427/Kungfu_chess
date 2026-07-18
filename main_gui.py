@@ -15,6 +15,7 @@ import time
 import cv2
 
 from asset_loader import AssetLoader
+from game_over_animation import GameOverAnimation
 from graphics_board_renderer import GraphicsBoardRenderer
 from img import Img
 
@@ -159,6 +160,7 @@ def main():
     )
     score_tracker = ScoreTracker()
     history_tracker = MoveHistoryTracker()
+    game_over_animation = GameOverAnimation()
 
     pending_clicks = []
 
@@ -186,6 +188,7 @@ def main():
         snapshot = GameSnapshot.from_state(state)
         score_tracker.update(snapshot)
         history_tracker.update(snapshot)
+        game_over_animation.sync(snapshot)
 
         renderer.render(snapshot, screen, selected=engine.selection)
         renderer.render_scores(
@@ -194,13 +197,19 @@ def main():
             score_tracker.get_score(Color.BLACK),
         )
         renderer.render_move_history(screen, history_tracker.moves)
+        renderer.render_game_over(screen, snapshot.winner, game_over_animation.progress())
 
         # Img.show() blocks on cv2.waitKey(0) and tears the window down
         # right after — incompatible with a continuous render loop, so this
         # polls cv2 directly instead, same as the rest of this pipeline.
         cv2.imshow(WINDOW_NAME, screen.img)
         key = cv2.waitKey(30)
-        if key == ESC or state.game_over:
+        # Unlike before this feature, game_over no longer breaks the loop
+        # by itself -- the whole point of an animated, persistent
+        # game-over screen is that it keeps rendering (and the window
+        # stays open) after the game ends, until the user closes it
+        # with ESC.
+        if key == ESC:
             break
 
     cv2.destroyAllWindows()

@@ -25,6 +25,10 @@ BOARD_PATH = REPO_ROOT / "assets" / "board.png"
 HISTORY_PANEL_WIDTH_PX = 220
 HISTORY_PANEL_BACKGROUND_BGRA = (30, 30, 30, 255)
 
+# BGR (no alpha -- alpha varies per frame with the fade, set separately
+# in render_game_over) of the game-over dark overlay.
+GAME_OVER_OVERLAY_BGR = (20, 20, 20)
+
 
 class GraphicsBoardRenderer:
     """Draws a ``GameSnapshot``'s board onto a window canvas via ``Img``.
@@ -197,6 +201,60 @@ class GraphicsBoardRenderer:
             text = f"{seconds:6.1f}s {move.kind}->({move.destination.row},{move.destination.col})"
             window_img.put_text(text, panel_x, y, font_size=0.42, color=color)
             y += 18
+
+    def render_game_over(
+        self,
+        window_img: Img,
+        winner: "Color | None",
+        progress: float,
+    ) -> None:
+        """Draw the animated game-over screen: a dark overlay fading in
+        over *window_img*, plus "GAME OVER" and the winner (or "Draw"),
+        driven by *progress* (0.0..1.0 — see
+        ``ui.graphics.game_over_animation.GameOverAnimation``).
+
+        A no-op while *progress* is 0 (the game hasn't ended yet, or the
+        animation genuinely hasn't advanced at all — either way there's
+        nothing to draw). *progress* is expected to only ever increase
+        and then hold at 1.0 once the game has ended; this method itself
+        has no memory of past frames — it just draws whatever fraction
+        it's given, same "separate compute vs. draw" split as
+        ``render_scores``/``render_move_history`` (the tracker computes,
+        this only draws).
+
+        The overlay's fade uses ``Img.draw_on``'s existing alpha-channel
+        blending (already proven elsewhere in this codebase, e.g. piece
+        sprites with transparent backgrounds) rather than any new
+        blending logic: a copy of *window_img* is flooded with
+        ``GAME_OVER_OVERLAY_BGR`` at alpha ``round(255 * progress)`` via
+        ``cv2.rectangle`` (avoiding a new ``numpy`` import in this file,
+        same reasoning as ``render()``'s ``cv2.copyMakeBorder`` for the
+        history panel), then drawn back onto *window_img* — a uniform
+        alpha across every pixel fades the WHOLE overlay in together.
+        Text is drawn on top at full opacity every frame once progress
+        is nonzero; only the background darkens over time, not the text
+        itself (simplest effect that's still clearly time-based, per
+        this feature's own brief).
+        """
+        if progress <= 0:
+            return
+
+        h, w = window_img.img.shape[:2]
+        overlay = Img()
+        overlay.img = window_img.img.copy()
+        alpha = round(255 * progress)
+        cv2.rectangle(overlay.img, (0, 0), (w, h), (*GAME_OVER_OVERLAY_BGR, alpha), -1)
+        overlay.draw_on(window_img, 0, 0)
+
+        winner_text = "Draw" if winner is None else f"{winner.name.title()} wins!"
+        text_x = max(w // 2 - 100, 0)
+        text_y = h // 2
+        window_img.put_text(
+            "GAME OVER", text_x, text_y, font_size=1.1, color=(255, 255, 255, 255), thickness=2
+        )
+        window_img.put_text(
+            winner_text, text_x, text_y + 40, font_size=0.8, color=(255, 255, 255, 255)
+        )
 
     def _draw_overlay_label(
         self,
