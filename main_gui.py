@@ -63,7 +63,47 @@ def _parse_args() -> argparse.Namespace:
             "standard layout if omitted, unreadable, or invalid."
         ),
     )
+    parser.add_argument(
+        "--scale",
+        type=float,
+        default=1.0,
+        help=(
+            "Scale factor applied to the default cell size (the size "
+            "main() would otherwise derive from board.png's own pixel "
+            "dimensions). Ignored if --cell-size is also given. Default: 1.0."
+        ),
+    )
+    parser.add_argument(
+        "--cell-size",
+        type=int,
+        default=None,
+        help=(
+            "Exact pixel size of one board cell. Wins over --scale if "
+            "both are given (a warning is logged noting --scale was "
+            "ignored). Default: derived from board.png."
+        ),
+    )
     return parser.parse_args()
+
+
+def _resolve_cell_size(args: argparse.Namespace, default_cell_size: int) -> int:
+    """Return the cell size (px) to render at, per --cell-size/--scale.
+
+    --cell-size wins outright when given — --scale is ignored, with a
+    warning logged iff a non-default --scale was also given (so silently
+    dropping it isn't a total surprise). Otherwise, --scale multiplies
+    *default_cell_size*.
+    """
+    if args.cell_size is not None:
+        if args.scale != 1.0:
+            logger.warning(
+                "Both --cell-size (%d) and --scale (%.3g) were given; "
+                "--cell-size wins and --scale is ignored.",
+                args.cell_size,
+                args.scale,
+            )
+        return args.cell_size
+    return round(default_cell_size * args.scale)
 
 
 def _load_board(board_path: "pathlib.Path | None") -> AbstractBoard:
@@ -97,19 +137,23 @@ def main():
     setup_logging()
     args = _parse_args()
 
-    board_shape = Img().read(BOARD_PATH).img.shape
-    board_height_px, board_width_px = board_shape[0], board_shape[1]
-
     board = _load_board(args.board)
-    mapper = BoardMapper.from_board_pixels(
-        board_width_px, board_height_px, board.num_cols, board.num_rows
-    )
+
+    native_shape = Img().read(BOARD_PATH).img.shape
+    native_height_px, native_width_px = native_shape[0], native_shape[1]
+    default_cell_size = BoardMapper.from_board_pixels(
+        native_width_px, native_height_px, board.num_cols, board.num_rows
+    ).cell_size
+    cell_size = _resolve_cell_size(args, default_cell_size)
+
+    mapper = BoardMapper(cell_size)
+    board_size = (cell_size * board.num_cols, cell_size * board.num_rows)
 
     engine = GameEngine(board, mapper=mapper)
     state = GameState(board=board)
 
     asset_loader = AssetLoader(PIECES_ROOT)
-    renderer = GraphicsBoardRenderer(asset_loader, mapper)
+    renderer = GraphicsBoardRenderer(asset_loader, mapper, board_size=board_size)
     score_tracker = ScoreTracker()
 
     pending_clicks = []

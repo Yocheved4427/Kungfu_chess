@@ -37,7 +37,24 @@ class GraphicsBoardRenderer:
     0 on every render.
     """
 
-    def __init__(self, asset_loader: AssetLoader, mapper: BoardMapper):
+    def __init__(
+        self,
+        asset_loader: AssetLoader,
+        mapper: BoardMapper,
+        board_size: "tuple[int, int] | None" = None,
+    ):
+        """
+        *board_size*, if given, is ``(width_px, height_px)`` — the
+        background board image is stretched to exactly this size rather
+        than kept at its native resolution, so it agrees with *mapper*'s
+        own ``cell_size`` (``mapper.cell_size * num_cols/num_rows``) —
+        this project's rule that rendering and click-to-cell mapping
+        must share one source of truth for cell size (see
+        ``input.board_mapper``'s own module docstring) applies to the
+        background image too, not just piece sprites. ``None`` (the
+        default) keeps today's behaviour exactly: the board image at its
+        native pixel size, whatever that happens to be.
+        """
         self._asset_loader = asset_loader
         self._mapper = mapper
         self._piece_views: Dict[Position, PieceView] = {}
@@ -46,7 +63,7 @@ class GraphicsBoardRenderer:
         # non-ASCII characters on Windows — this will raise
         # FileNotFoundError on any machine where the repo path itself
         # contains such characters (e.g. this one).
-        self._board_template = Img().read(BOARD_PATH)
+        self._board_template = Img().read(BOARD_PATH, size=board_size)
 
     def render(
         self,

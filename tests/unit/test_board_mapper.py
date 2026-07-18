@@ -72,6 +72,16 @@ class TestRoundTrip:
             x, y = mapper.cell_to_pixel(row, col)
             assert mapper.pixel_to_cell(x, y) == Position(row, col)
 
+    def test_round_trips_correctly_at_a_custom_cell_size(self):
+        """Same identity, but at a cell size that doesn't match any
+        existing fixture in this file (main.py's --scale/--cell-size can
+        produce arbitrary sizes like this one) -- the mapper must stay
+        internally consistent at whatever size it's actually built with."""
+        mapper = BoardMapper(37)
+        for row, col in [(0, 0), (2, 5), (7, 7), (3, 1)]:
+            x, y = mapper.cell_to_pixel(row, col)
+            assert mapper.pixel_to_cell(x, y) == Position(row, col)
+
 
 class TestFromBoardPixels:
     def test_derives_square_cell_size_from_matching_dimensions(self):
