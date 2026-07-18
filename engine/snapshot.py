@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Optional, Tuple
 
 from core.models import Color, PendingJump, PendingMove, Position
 from engine.board import AbstractBoard
@@ -48,6 +48,13 @@ class PieceSnapshot:
                           cell's piece is currently mid-jump.
     ``is_in_cooldown``  – mirrors ``GameEngine.is_in_cooldown``: True iff
                           this cell is still cooling down after a landing.
+    ``cooldown_remaining_ms`` – milliseconds left until the cooldown
+                          above expires, or ``None`` when
+                          ``is_in_cooldown`` is False. A separate field
+                          rather than folded into ``is_in_cooldown``
+                          (e.g. as an ``Optional[int]``) so every
+                          existing ``is_in_cooldown`` consumer/test keeps
+                          working unchanged — this is purely additive.
     """
 
     color: Color
@@ -56,6 +63,7 @@ class PieceSnapshot:
     is_in_transit: bool = False
     is_airborne: bool = False
     is_in_cooldown: bool = False
+    cooldown_remaining_ms: Optional[int] = None
 
     @classmethod
     def from_piece(
@@ -66,14 +74,15 @@ class PieceSnapshot:
         is_in_transit: bool = False,
         is_airborne: bool = False,
         is_in_cooldown: bool = False,
+        cooldown_remaining_ms: Optional[int] = None,
     ) -> "PieceSnapshot":
         """Build from a board token (e.g. ``"wK"``) and the cell it occupies.
 
         The token alone carries no status — a bare occupancy grid (see
         ``BoardSnapshot.from_board`` called without a ``state``) has no
         pending/airborne/cooldown data to report, so those default to
-        False; ``BoardSnapshot.from_board(board, state)`` passes the real
-        values in.
+        False/None; ``BoardSnapshot.from_board(board, state)`` passes the
+        real values in.
         """
         color = Color.WHITE if piece[0] == Color.WHITE.value else Color.BLACK
         kind = piece[1]
@@ -84,6 +93,7 @@ class PieceSnapshot:
             is_in_transit=is_in_transit,
             is_airborne=is_airborne,
             is_in_cooldown=is_in_cooldown,
+            cooldown_remaining_ms=cooldown_remaining_ms,
         )
 
 
@@ -123,13 +133,19 @@ class BoardSnapshot:
                     row_cells.append(PieceSnapshot.from_piece(token, pos))
                 else:
                     expiry = state.cooldowns.get(pos)
+                    remaining = (
+                        expiry - state.current_time
+                        if expiry is not None and expiry > state.current_time
+                        else None
+                    )
                     row_cells.append(
                         PieceSnapshot.from_piece(
                             token,
                             pos,
                             is_in_transit=any(pm.from_pos == pos for pm in state.pending),
                             is_airborne=any(pj.pos == pos for pj in state.airborne),
-                            is_in_cooldown=expiry is not None and expiry > state.current_time,
+                            is_in_cooldown=remaining is not None,
+                            cooldown_remaining_ms=remaining,
                         )
                     )
             rows.append(tuple(row_cells))

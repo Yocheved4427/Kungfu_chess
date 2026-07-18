@@ -138,7 +138,7 @@ def main():
         snapshot = GameSnapshot.from_state(state)
         score_tracker.update(snapshot)
 
-        renderer.render(snapshot, screen)
+        renderer.render(snapshot, screen, selected=engine.selection)
         renderer.render_scores(
             screen,
             score_tracker.get_score(Color.WHITE),

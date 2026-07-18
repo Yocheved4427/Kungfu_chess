@@ -13,7 +13,7 @@ from piece_state_machine import PieceStateMachine
 from piece_view import PieceView
 
 if TYPE_CHECKING:
-    from engine.snapshot import BoardSnapshot, GameSnapshot
+    from engine.snapshot import BoardSnapshot, GameSnapshot, PieceSnapshot
 
 BOARD_PATH = REPO_ROOT / "assets" / "board.png"
 
@@ -48,7 +48,23 @@ class GraphicsBoardRenderer:
         # contains such characters (e.g. this one).
         self._board_template = Img().read(BOARD_PATH)
 
-    def render(self, game_snapshot: "GameSnapshot", window_img: Img) -> None:
+    def render(
+        self,
+        game_snapshot: "GameSnapshot",
+        window_img: Img,
+        selected: Position | None = None,
+    ) -> None:
+        """Draw *game_snapshot*'s board, plus a "SEL" label over the cell
+        at *selected* (if any) and a remaining-cooldown label over any
+        piece still cooling down.
+
+        *selected* is a separate parameter, not part of *game_snapshot*,
+        because the current selection isn't part of ``GameState`` at all
+        — it's owned by ``ClickController`` (see that module's own
+        header comment) and only reachable via ``GameEngine.selection``.
+        Defaults to ``None`` so every existing caller/test keeps working
+        unchanged.
+        """
         window_img.img = self._board_template.img.copy()
 
         self._sync_piece_views(game_snapshot.board)
@@ -68,6 +84,9 @@ class GraphicsBoardRenderer:
 
             x, y = self._mapper.cell_to_pixel(position.row, position.col)
             scaled.draw_on(window_img, x, y)
+
+            piece = game_snapshot.board.get_piece_at(position)
+            self._draw_overlay_label(window_img, piece, position == selected, x, y)
 
     def render_scores(
         self, window_img: Img, white_score: int, black_score: int
@@ -90,6 +109,38 @@ class GraphicsBoardRenderer:
 
         window_img.put_text(f"White: {white_score}", white_x, white_y, font_size=0.8)
         window_img.put_text(black_text, black_x, black_y, font_size=0.8)
+
+    def _draw_overlay_label(
+        self,
+        window_img: Img,
+        piece: "PieceSnapshot | None",
+        is_selected: bool,
+        x: int,
+        y: int,
+    ) -> None:
+        """Draw at most one small text label just above the cell at
+        pixel (*x*, *y*) — "SEL" if this is the selected cell, or the
+        piece's remaining cooldown time otherwise.
+
+        The two never overlap in practice: ``ClickController``/
+        ``GameEngine.is_selectable`` never allow a piece that's busy
+        (mid-move, airborne, or cooling down — see
+        ``GameEngine._is_busy``) to become the selection, so a selected
+        piece can never also be in cooldown. Selection is still checked
+        first here regardless, since it needs no ``piece`` at all (an
+        empty cell can't be selected either way, but there's no reason
+        to couple the two checks).
+        """
+        label_x, label_y = x + 2, y - 6
+        if is_selected:
+            window_img.put_text("SEL", label_x, label_y, font_size=0.4, color=(0, 255, 255, 255))
+            return
+
+        if piece is not None and piece.cooldown_remaining_ms is not None:
+            seconds = piece.cooldown_remaining_ms / 1000
+            window_img.put_text(
+                f"{seconds:.1f}s", label_x, label_y, font_size=0.4, color=(0, 165, 255, 255)
+            )
 
     def _sync_piece_views(self, board: "BoardSnapshot") -> None:
         """Rebuild ``_piece_views`` for *board*'s current occupancy.
