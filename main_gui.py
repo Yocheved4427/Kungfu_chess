@@ -19,10 +19,12 @@ from graphics_board_renderer import GraphicsBoardRenderer
 from img import Img
 
 from core.config import VALID_PIECE_CHARS
+from core.models import Color
 from engine.board import AbstractBoard, TextBoard
 from engine.board_validator import BoardValidationError, BoardValidator
 from engine.game import GameEngine
 from engine.game_state import GameState
+from engine.score_tracker import ScoreTracker
 from engine.snapshot import GameSnapshot
 from input.board_mapper import BoardMapper
 from input.board_parser import BoardParser
@@ -108,6 +110,7 @@ def main():
 
     asset_loader = AssetLoader(PIECES_ROOT)
     renderer = GraphicsBoardRenderer(asset_loader, mapper)
+    score_tracker = ScoreTracker()
 
     pending_clicks = []
 
@@ -133,7 +136,14 @@ def main():
         pending_clicks.clear()
 
         snapshot = GameSnapshot.from_state(state)
+        score_tracker.update(snapshot)
+
         renderer.render(snapshot, screen)
+        renderer.render_scores(
+            screen,
+            score_tracker.get_score(Color.WHITE),
+            score_tracker.get_score(Color.BLACK),
+        )
 
         # Img.show() blocks on cv2.waitKey(0) and tears the window down
         # right after — incompatible with a continuous render loop, so this

@@ -69,6 +69,28 @@ class GraphicsBoardRenderer:
             x, y = self._mapper.cell_to_pixel(position.row, position.col)
             scaled.draw_on(window_img, x, y)
 
+    def render_scores(
+        self, window_img: Img, white_score: int, black_score: int
+    ) -> None:
+        """Draw both players' cumulative capture scores in the top
+        corners of *window_img* — White top-left, Black top-right.
+
+        A separate call from ``render()`` rather than folded into it:
+        ``render()``'s contract (one ``GameSnapshot`` in, the board drawn)
+        stays unchanged for every existing caller/test, and the score
+        display is a simple, independent overlay — no per-piece view or
+        animation state involved, just two ``Img.put_text`` calls.
+        """
+        white_x, white_y = 10, 30
+        black_text = f"Black: {black_score}"
+        # Right-aligned against the window's own width rather than a
+        # fixed offset, so it stays in the corner regardless of board size.
+        black_x = window_img.img.shape[1] - 10 - len(black_text) * 17
+        black_y = 30
+
+        window_img.put_text(f"White: {white_score}", white_x, white_y, font_size=0.8)
+        window_img.put_text(black_text, black_x, black_y, font_size=0.8)
+
     def _sync_piece_views(self, board: "BoardSnapshot") -> None:
         """Rebuild ``_piece_views`` for *board*'s current occupancy.
 
