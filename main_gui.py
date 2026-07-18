@@ -24,6 +24,7 @@ from engine.board import AbstractBoard, TextBoard
 from engine.board_validator import BoardValidationError, BoardValidator
 from engine.game import GameEngine
 from engine.game_state import GameState
+from engine.move_history_tracker import MoveHistoryTracker
 from engine.score_tracker import ScoreTracker
 from engine.snapshot import GameSnapshot
 from input.board_mapper import BoardMapper
@@ -153,8 +154,11 @@ def main():
     state = GameState(board=board)
 
     asset_loader = AssetLoader(PIECES_ROOT)
-    renderer = GraphicsBoardRenderer(asset_loader, mapper, board_size=board_size)
+    renderer = GraphicsBoardRenderer(
+        asset_loader, mapper, board_size=board_size, show_history_panel=True
+    )
     score_tracker = ScoreTracker()
+    history_tracker = MoveHistoryTracker()
 
     pending_clicks = []
 
@@ -181,6 +185,7 @@ def main():
 
         snapshot = GameSnapshot.from_state(state)
         score_tracker.update(snapshot)
+        history_tracker.update(snapshot)
 
         renderer.render(snapshot, screen, selected=engine.selection)
         renderer.render_scores(
@@ -188,6 +193,7 @@ def main():
             score_tracker.get_score(Color.WHITE),
             score_tracker.get_score(Color.BLACK),
         )
+        renderer.render_move_history(screen, history_tracker.moves)
 
         # Img.show() blocks on cv2.waitKey(0) and tears the window down
         # right after — incompatible with a continuous render loop, so this

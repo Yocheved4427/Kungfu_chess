@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Dict
+from typing import TYPE_CHECKING, Dict, Sequence
 
 import cv2
 
 from asset_loader import AssetLoader
-from core.models import Position
+from core.models import Color, Position
 from img import Img
 from input.board_mapper import BoardMapper
 from paths import REPO_ROOT
@@ -13,9 +13,17 @@ from piece_state_machine import PieceStateMachine
 from piece_view import PieceView
 
 if TYPE_CHECKING:
+    from engine.move_history_tracker import CompletedMove
     from engine.snapshot import BoardSnapshot, GameSnapshot, PieceSnapshot
 
 BOARD_PATH = REPO_ROOT / "assets" / "board.png"
+
+# Pixel width of the reserved history-panel region (see
+# GraphicsBoardRenderer.__init__'s show_history_panel) and the solid
+# background colour (BGRA) it's filled with -- a dark near-black, distinct
+# from the board itself so the panel reads as a separate region.
+HISTORY_PANEL_WIDTH_PX = 220
+HISTORY_PANEL_BACKGROUND_BGRA = (30, 30, 30, 255)
 
 
 class GraphicsBoardRenderer:
@@ -42,6 +50,7 @@ class GraphicsBoardRenderer:
         asset_loader: AssetLoader,
         mapper: BoardMapper,
         board_size: "tuple[int, int] | None" = None,
+        show_history_panel: bool = False,
     ):
         """
         *board_size*, if given, is ``(width_px, height_px)`` — the
@@ -54,9 +63,21 @@ class GraphicsBoardRenderer:
         background image too, not just piece sprites. ``None`` (the
         default) keeps today's behaviour exactly: the board image at its
         native pixel size, whatever that happens to be.
+
+        *show_history_panel*, if True, makes ``render()`` reserve
+        ``HISTORY_PANEL_WIDTH_PX`` extra pixels to the RIGHT of the board
+        (see ``render()``) for ``render_move_history()`` to draw into.
+        Defaults to False so every existing caller/test keeps working
+        unchanged — the reserved region only ever appears at the board's
+        right edge, never shifting the board's own pixels (which start
+        at (0, 0) either way), so click-to-cell mapping via *mapper*
+        needs no changes: a click landing in the panel simply maps to a
+        column past ``num_cols``, which ``AbstractBoard.contains``
+        already rejects as a no-op, same as any other out-of-bounds click.
         """
         self._asset_loader = asset_loader
         self._mapper = mapper
+        self._show_history_panel = show_history_panel
         self._piece_views: Dict[Position, PieceView] = {}
         # NOTE: passes the full absolute path directly (per explicit
         # instruction). cv2.imread cannot open absolute paths containing
@@ -82,7 +103,15 @@ class GraphicsBoardRenderer:
         Defaults to ``None`` so every existing caller/test keeps working
         unchanged.
         """
-        window_img.img = self._board_template.img.copy()
+        if self._show_history_panel:
+            window_img.img = cv2.copyMakeBorder(
+                self._board_template.img,
+                0, 0, 0, HISTORY_PANEL_WIDTH_PX,
+                cv2.BORDER_CONSTANT,
+                value=HISTORY_PANEL_BACKGROUND_BGRA,
+            )
+        else:
+            window_img.img = self._board_template.img.copy()
 
         self._sync_piece_views(game_snapshot.board)
 
@@ -119,13 +148,55 @@ class GraphicsBoardRenderer:
         """
         white_x, white_y = 10, 30
         black_text = f"Black: {black_score}"
-        # Right-aligned against the window's own width rather than a
-        # fixed offset, so it stays in the corner regardless of board size.
-        black_x = window_img.img.shape[1] - 10 - len(black_text) * 17
+        # Right-aligned against the BOARD's own width specifically (not
+        # window_img's, which is wider than the board whenever
+        # show_history_panel reserves extra space to the right) so this
+        # stays anchored to the board's own top-right corner regardless
+        # of whether a history panel is present.
+        board_width = self._board_template.img.shape[1]
+        black_x = board_width - 10 - len(black_text) * 17
         black_y = 30
 
         window_img.put_text(f"White: {white_score}", white_x, white_y, font_size=0.8)
         window_img.put_text(black_text, black_x, black_y, font_size=0.8)
+
+    def render_move_history(
+        self,
+        window_img: Img,
+        moves: "Sequence[CompletedMove]",
+        max_entries: int = 16,
+    ) -> None:
+        """Draw the most recent completed moves into the history panel
+        reserved by ``show_history_panel=True`` at construction.
+
+        A separate call from ``render()``, same reasoning as
+        ``render_scores``: an independent overlay, not part of
+        ``render()``'s own per-piece drawing. A no-op if
+        ``show_history_panel`` was False at construction — there's no
+        reserved region to draw into, and *window_img* is exactly the
+        board's own width in that case, so text here would either land
+        off-canvas or overwrite the board itself.
+
+        Only the last *max_entries* moves are drawn (oldest of that
+        slice at the top), not the whole (potentially long) history —
+        "truncated list of recent moves", per this feature's own brief.
+        White's moves and Black's are drawn in different colours so the
+        two are visually distinguishable at a glance.
+        """
+        if not self._show_history_panel:
+            return
+
+        panel_x = self._board_template.img.shape[1] + 10
+        y = 25
+        window_img.put_text("History", panel_x, y, font_size=0.6, color=(255, 255, 255, 255))
+        y += 25
+
+        for move in moves[-max_entries:]:
+            color = (255, 255, 255, 255) if move.color is Color.WHITE else (0, 215, 255, 255)
+            seconds = move.time / 1000
+            text = f"{seconds:6.1f}s {move.kind}->({move.destination.row},{move.destination.col})"
+            window_img.put_text(text, panel_x, y, font_size=0.42, color=color)
+            y += 18
 
     def _draw_overlay_label(
         self,
