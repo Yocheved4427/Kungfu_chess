@@ -1,13 +1,13 @@
 """
-Unit tests for main_gui.py's two-player split-screen input handling
+Unit tests for ui/game_loop.py's two-player split-screen input handling
 (_route_click, _OwnColorClickController) and canvas compositing (_hstack).
 
 Scope: exactly the input-routing logic the two-player design discussion
-identified as the actual risk here (see main_gui.py's own module-level
-comments on _OwnColorClickController and _run_two_player for the full
-reasoning) — not the rendering pipeline itself (already covered by
-test_render_game_over.py / test_move_history_panel_rendering.py /
-test_graphics_board_renderer_sizing.py) and not _new_game (test_main_gui.py).
+identified as the actual risk here (see ui/game_loop.py's own
+module-level comments on _OwnColorClickController and _run_two_player
+for the full reasoning) — not the rendering pipeline itself (already
+covered by test_render_game_over.py / test_move_history_panel_rendering.py
+/ test_graphics_board_renderer_sizing.py) and not _new_game (test_main_gui.py).
 
   * _route_click: a click must reach exactly one of the two controllers,
     translated into that half's own local coordinate space, and never
@@ -34,14 +34,14 @@ import numpy as np
 # ui/graphics modules (img, in particular) import each other as flat
 # sibling modules, which only resolves if ui/graphics itself is on
 # sys.path -- same setup as test_piece_view.py/test_render_game_over.py
-# (see those files' own header comments for why). Importing main_gui
-# also inserts this path as a side effect of its own module body, but
-# this test file does it explicitly rather than relying on that, same
-# as every other test file here that touches ui/graphics directly.
+# (see those files' own header comments for why). ui.game_loop itself
+# relies on its caller having already done this (same convention as
+# graphics_board_renderer.py), so this test file does it explicitly
+# before importing ui.game_loop, same as every other test file here
+# that touches ui/graphics directly.
 GRAPHICS_DIR = pathlib.Path(__file__).resolve().parents[2] / "ui" / "graphics"
 sys.path.insert(0, str(GRAPHICS_DIR))
 
-import main_gui  # noqa: E402
 from img import Img  # noqa: E402
 
 from core.models import Color, Position  # noqa: E402
@@ -49,6 +49,7 @@ from engine.board import TextBoard  # noqa: E402
 from engine.game import GameEngine  # noqa: E402
 from engine.game_state import GameState  # noqa: E402
 from input.board_mapper import BoardMapper  # noqa: E402
+from ui import game_factory, game_loop  # noqa: E402
 
 
 class _RecordingController:
@@ -62,14 +63,14 @@ class _RecordingController:
 class TestRouteClick:
     def test_a_click_strictly_inside_the_left_half_reaches_only_left(self):
         left, right = _RecordingController(), _RecordingController()
-        main_gui._route_click(50, 70, left_width=100, left_controller=left, right_controller=right, state=None)
+        game_loop._route_click(50, 70, left_width=100, left_controller=left, right_controller=right, state=None)
 
         assert left.calls == [(50, 70)]
         assert right.calls == []
 
     def test_a_click_in_the_right_half_reaches_only_right_with_translated_x(self):
         left, right = _RecordingController(), _RecordingController()
-        main_gui._route_click(150, 70, left_width=100, left_controller=left, right_controller=right, state=None)
+        game_loop._route_click(150, 70, left_width=100, left_controller=left, right_controller=right, state=None)
 
         assert left.calls == []
         assert right.calls == [(50, 70)]  # 150 - 100
@@ -79,15 +80,15 @@ class TestRouteClick:
         left half's own board region (a board of width left_width spans
         columns [0, left_width) locally)."""
         left, right = _RecordingController(), _RecordingController()
-        main_gui._route_click(100, 0, left_width=100, left_controller=left, right_controller=right, state=None)
+        game_loop._route_click(100, 0, left_width=100, left_controller=left, right_controller=right, state=None)
 
         assert left.calls == []
         assert right.calls == [(0, 0)]
 
     def test_y_is_never_translated_by_either_half(self):
         left, right = _RecordingController(), _RecordingController()
-        main_gui._route_click(10, 234, left_width=100, left_controller=left, right_controller=right, state=None)
-        main_gui._route_click(210, 234, left_width=100, left_controller=left, right_controller=right, state=None)
+        game_loop._route_click(10, 234, left_width=100, left_controller=left, right_controller=right, state=None)
+        game_loop._route_click(210, 234, left_width=100, left_controller=left, right_controller=right, state=None)
 
         assert left.calls == [(10, 234)]
         assert right.calls == [(110, 234)]
@@ -96,14 +97,14 @@ class TestRouteClick:
         left, right = _RecordingController(), _RecordingController()
         clicks = [(5, 5), (250, 5), (99, 20), (100, 20), (300, 40)]
         for x, y in clicks:
-            main_gui._route_click(x, y, left_width=100, left_controller=left, right_controller=right, state=None)
+            game_loop._route_click(x, y, left_width=100, left_controller=left, right_controller=right, state=None)
 
         assert left.calls == [(5, 5), (99, 20)]
         assert right.calls == [(150, 5), (0, 20), (200, 40)]
 
 
 def _shared_game(mapper: BoardMapper):
-    board = TextBoard(main_gui.STANDARD_BOARD_ROWS)
+    board = TextBoard(game_factory.STANDARD_BOARD_ROWS)
     engine = GameEngine(board, mapper=mapper)
     state = GameState(board=board)
     return engine, state
@@ -113,7 +114,7 @@ class TestOwnColorClickController:
     def test_clicking_an_own_colour_piece_selects_it(self):
         mapper = BoardMapper(100)
         engine, state = _shared_game(mapper)
-        white = main_gui._OwnColorClickController(engine, mapper, Color.WHITE)
+        white = game_loop._OwnColorClickController(engine, mapper, Color.WHITE)
 
         x, y = mapper.cell_to_pixel(6, 0)  # a white pawn
         white.handle_click(state, x, y)
@@ -123,7 +124,7 @@ class TestOwnColorClickController:
     def test_clicking_an_enemy_piece_does_not_select_it(self):
         mapper = BoardMapper(100)
         engine, state = _shared_game(mapper)
-        white = main_gui._OwnColorClickController(engine, mapper, Color.WHITE)
+        white = game_loop._OwnColorClickController(engine, mapper, Color.WHITE)
 
         x, y = mapper.cell_to_pixel(1, 0)  # a black pawn
         white.handle_click(state, x, y)
@@ -133,7 +134,7 @@ class TestOwnColorClickController:
     def test_clicking_an_empty_cell_with_no_selection_is_a_no_op(self):
         mapper = BoardMapper(100)
         engine, state = _shared_game(mapper)
-        white = main_gui._OwnColorClickController(engine, mapper, Color.WHITE)
+        white = game_loop._OwnColorClickController(engine, mapper, Color.WHITE)
 
         x, y = mapper.cell_to_pixel(4, 4)  # empty in the starting position
         white.handle_click(state, x, y)
@@ -146,7 +147,7 @@ class TestOwnColorClickController:
         ClickController would."""
         mapper = BoardMapper(100)
         engine, state = _shared_game(mapper)
-        white = main_gui._OwnColorClickController(engine, mapper, Color.WHITE)
+        white = game_loop._OwnColorClickController(engine, mapper, Color.WHITE)
 
         from_x, from_y = mapper.cell_to_pixel(6, 0)
         white.handle_click(state, from_x, from_y)
@@ -170,8 +171,8 @@ class TestTwoIndependentControllersDoNotClobberEachOther:
     def test_selecting_on_one_half_does_not_affect_the_others_selection(self):
         mapper = BoardMapper(100)
         engine, state = _shared_game(mapper)
-        white = main_gui._OwnColorClickController(engine, mapper, Color.WHITE)
-        black = main_gui._OwnColorClickController(engine, mapper, Color.BLACK)
+        white = game_loop._OwnColorClickController(engine, mapper, Color.WHITE)
+        black = game_loop._OwnColorClickController(engine, mapper, Color.BLACK)
 
         wx, wy = mapper.cell_to_pixel(6, 0)
         white.handle_click(state, wx, wy)
@@ -189,8 +190,8 @@ class TestTwoIndependentControllersDoNotClobberEachOther:
         clicked" -- see _OwnColorClickController's own docstring."""
         mapper = BoardMapper(100)
         engine, state = _shared_game(mapper)
-        white = main_gui._OwnColorClickController(engine, mapper, Color.WHITE)
-        black = main_gui._OwnColorClickController(engine, mapper, Color.BLACK)
+        white = game_loop._OwnColorClickController(engine, mapper, Color.WHITE)
+        black = game_loop._OwnColorClickController(engine, mapper, Color.BLACK)
 
         wx, wy = mapper.cell_to_pixel(6, 0)
         white.handle_click(state, wx, wy)  # White selects a pawn
@@ -210,7 +211,7 @@ class TestHstack:
         right = Img()
         right.img = np.full((10, 30, 4), 2, dtype=np.uint8)
 
-        combined = main_gui._hstack(left, right)
+        combined = game_loop._hstack(left, right)
 
         assert combined.img.shape == (10, 50, 4)
         assert (combined.img[:, :20] == 1).all()
