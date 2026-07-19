@@ -22,12 +22,49 @@ BOARD_PATH = REPO_ROOT / "assets" / "board.png"
 # GraphicsBoardRenderer.__init__'s show_history_panel) and the solid
 # background colour (BGRA) it's filled with -- a dark near-black, distinct
 # from the board itself so the panel reads as a separate region.
+#
+# Used by the older, single-shared-history-panel layout (show_history_panel)
+# -- still exactly as it was, unchanged, since ui.graphics's two-player mode
+# still relies on it (see main_gui.py's _run_two_player). The newer
+# side-panel layout (show_side_panels, below) has its own, separate set of
+# constants rather than repurposing these, precisely so that reuse can't
+# accidentally change appearance out from under the older layout's callers.
 HISTORY_PANEL_WIDTH_PX = 220
 HISTORY_PANEL_BACKGROUND_BGRA = (30, 30, 30, 255)
 
 # BGR (no alpha -- alpha varies per frame with the fade, set separately
 # in render_game_over) of the game-over dark overlay.
 GAME_OVER_OVERLAY_BGR = (20, 20, 20)
+
+# ---------------------------------------------------------------------------
+# show_side_panels layout (see GraphicsBoardRenderer.__init__ and
+# render_player_panel) -- a labeled per-player panel on each side of the
+# board, replacing the old zero-margin layout where render_scores() drew
+# directly on top of the board itself (with nowhere reserved for it, its
+# text could and did overlap the board's own top-row pieces -- see
+# render_player_panel's own docstring for the full account of that bug).
+# ---------------------------------------------------------------------------
+
+# Gap (px) kept clear on every side of the board, and between the board and
+# each side panel -- the fix for "board edges cropped": previously this was
+# 0, so anything drawn near a board edge (or, with show_history_panel, the
+# board's own right edge butting straight into that panel) had no breathing
+# room at all.
+BOARD_MARGIN_PX = 24
+
+# Width (px) of each side panel -- matches HISTORY_PANEL_WIDTH_PX's value
+# (verified via cv2.getTextSize, not the old layout's `len(text) * 17`
+# estimate, to comfortably fit every string render_player_panel draws: see
+# that method's docstring) but kept as its own constant, per the note above.
+SIDE_PANEL_WIDTH_PX = 220
+SIDE_PANEL_BACKGROUND_BGRA = (30, 30, 30, 255)
+
+# The name+score box at the top of each side panel: a visually distinct
+# (lighter) filled rectangle so it reads as its own clearly-bounded region,
+# per this feature's own "clearly readable box" requirement -- rather than
+# score text just floating in the panel with nothing setting it apart.
+PANEL_BOX_HEIGHT_PX = 70
+PANEL_BOX_BACKGROUND_BGRA = (55, 55, 55, 255)
 
 
 class GraphicsBoardRenderer:
@@ -55,6 +92,7 @@ class GraphicsBoardRenderer:
         mapper: BoardMapper,
         board_size: "tuple[int, int] | None" = None,
         show_history_panel: bool = False,
+        show_side_panels: bool = False,
     ):
         """
         *board_size*, if given, is ``(width_px, height_px)`` — the
@@ -72,16 +110,27 @@ class GraphicsBoardRenderer:
         ``HISTORY_PANEL_WIDTH_PX`` extra pixels to the RIGHT of the board
         (see ``render()``) for ``render_move_history()`` to draw into.
         Defaults to False so every existing caller/test keeps working
-        unchanged — the reserved region only ever appears at the board's
-        right edge, never shifting the board's own pixels (which start
-        at (0, 0) either way), so click-to-cell mapping via *mapper*
-        needs no changes: a click landing in the panel simply maps to a
-        column past ``num_cols``, which ``AbstractBoard.contains``
-        already rejects as a no-op, same as any other out-of-bounds click.
+        unchanged. Still used exactly as before by two-player mode
+        (``main_gui.py``'s ``_run_two_player``) — mutually exclusive with
+        *show_side_panels* in practice, though nothing enforces that here.
+
+        *show_side_panels*, if True, makes ``render()`` reserve
+        ``BOARD_MARGIN_PX`` on every side of the board plus
+        ``SIDE_PANEL_WIDTH_PX`` on the left AND right, for
+        ``render_player_panel()`` to draw a labeled panel (name, score,
+        that player's own move history) into on each side — see that
+        method's docstring for the layout this replaces and why. *mapper*
+        MUST already be constructed with matching ``x_offset``/
+        ``y_offset`` (see ``BoardMapper``'s own docstring) when this is
+        True, so rendering and click-to-cell mapping agree on where the
+        board actually starts within the wider canvas — this class has
+        no way to enforce that itself, since *mapper* is constructed by
+        the caller before being passed in here.
         """
         self._asset_loader = asset_loader
         self._mapper = mapper
         self._show_history_panel = show_history_panel
+        self._show_side_panels = show_side_panels
         self._piece_views: Dict[Position, PieceView] = {}
         # NOTE: passes the full absolute path directly (per explicit
         # instruction). cv2.imread cannot open absolute paths containing
@@ -107,7 +156,15 @@ class GraphicsBoardRenderer:
         Defaults to ``None`` so every existing caller/test keeps working
         unchanged.
         """
-        if self._show_history_panel:
+        if self._show_side_panels:
+            side_pad = 2 * BOARD_MARGIN_PX + SIDE_PANEL_WIDTH_PX
+            window_img.img = cv2.copyMakeBorder(
+                self._board_template.img,
+                BOARD_MARGIN_PX, BOARD_MARGIN_PX, side_pad, side_pad,
+                cv2.BORDER_CONSTANT,
+                value=SIDE_PANEL_BACKGROUND_BGRA,
+            )
+        elif self._show_history_panel:
             window_img.img = cv2.copyMakeBorder(
                 self._board_template.img,
                 0, 0, 0, HISTORY_PANEL_WIDTH_PX,
@@ -200,6 +257,85 @@ class GraphicsBoardRenderer:
             seconds = move.time / 1000
             text = f"{seconds:6.1f}s {move.kind}->({move.destination.row},{move.destination.col})"
             window_img.put_text(text, panel_x, y, font_size=0.42, color=color)
+            y += 18
+
+    def render_player_panel(
+        self,
+        window_img: Img,
+        color: "Color",
+        score: int,
+        moves: "Sequence[CompletedMove]",
+        max_entries: int = 20,
+    ) -> None:
+        """Draw one player's labeled side panel: a bounded name+score box
+        at the top, then that player's OWN move history below it — White's
+        panel on the left of the board, Black's on the right (call once per
+        colour). Requires ``show_side_panels=True`` at construction (a
+        no-op otherwise — mirrors ``render_move_history``'s own guard for
+        the older layout); *window_img* must already be the wider canvas
+        ``render()`` builds when that's set.
+
+        Replaces ``render_scores`` for callers using ``show_side_panels``:
+        that method drew "White: N" / "Black: N" directly on top of the
+        board at (10, 30) / near the top-right corner, with no space
+        reserved for it anywhere — verified empirically (not assumed) that
+        this drew INSIDE the top-left occupied cell's own pixel range,
+        overlapping/obscuring the piece there, which is what the reported
+        "pieces on the top row are cut off" and "score text looks like
+        't: 0'" bugs actually were: not off-canvas clipping, but the score
+        text and the board's own top-row pieces occupying the same pixels
+        with nothing to keep them apart. Reserving a whole panel region up
+        front (see ``render()``'s ``show_side_panels`` canvas-building)
+        and confining every score/history draw call to *this* panel's own
+        ``SIDE_PANEL_WIDTH_PX``-wide region structurally rules that out.
+
+        Per-player history is a real split, not a guess: ``CompletedMove``
+        already carries its own ``color`` (see
+        ``engine.move_history_tracker``), so filtering *moves* down to
+        just this panel's colour needs no change to the tracker itself —
+        only how the already-computed history is displayed.
+
+        Text widths here were checked with ``cv2.getTextSize`` (not
+        ``render_move_history``'s ``len(text) * 17`` estimate) against
+        ``SIDE_PANEL_WIDTH_PX``: the widest line drawn here ("Score: 999",
+        or a history entry) is under half that width, so nothing drawn in
+        this panel is expected to reach its own right edge, let alone the
+        board's.
+        """
+        if not self._show_side_panels:
+            return
+
+        board_width = self._board_template.img.shape[1]
+        if color is Color.WHITE:
+            panel_x = BOARD_MARGIN_PX
+        else:
+            panel_x = 2 * BOARD_MARGIN_PX + SIDE_PANEL_WIDTH_PX + board_width + BOARD_MARGIN_PX
+
+        box_top = BOARD_MARGIN_PX
+        box_bottom = BOARD_MARGIN_PX + PANEL_BOX_HEIGHT_PX
+        cv2.rectangle(
+            window_img.img,
+            (panel_x, box_top),
+            (panel_x + SIDE_PANEL_WIDTH_PX, box_bottom),
+            PANEL_BOX_BACKGROUND_BGRA,
+            -1,
+        )
+
+        label = "White" if color is Color.WHITE else "Black"
+        window_img.put_text(
+            label, panel_x + 10, box_top + 28, font_size=0.8, color=(255, 255, 255, 255), thickness=2
+        )
+        window_img.put_text(
+            f"Score: {score}", panel_x + 10, box_top + 54, font_size=0.6, color=(255, 255, 255, 255)
+        )
+
+        text_color = (255, 255, 255, 255) if color is Color.WHITE else (0, 215, 255, 255)
+        y = box_bottom + 24
+        own_moves = [move for move in moves if move.color is color]
+        for move in own_moves[-max_entries:]:
+            seconds = move.time / 1000
+            text = f"{seconds:6.1f}s {move.kind}->({move.destination.row},{move.destination.col})"
+            window_img.put_text(text, panel_x + 10, y, font_size=0.42, color=text_color)
             y += 18
 
     def render_game_over(

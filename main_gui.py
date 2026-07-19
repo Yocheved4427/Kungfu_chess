@@ -16,7 +16,7 @@ import cv2
 
 from asset_loader import AssetLoader
 from game_over_animation import GameOverAnimation
-from graphics_board_renderer import GraphicsBoardRenderer
+from graphics_board_renderer import BOARD_MARGIN_PX, SIDE_PANEL_WIDTH_PX, GraphicsBoardRenderer
 from img import Img
 
 from controllers.click_controller import ClickController
@@ -253,9 +253,19 @@ def _run_single_player(
     screen: Img,
     pending_clicks: list,
 ) -> None:
-    """The original one-window, one-mouse-stream game loop — unchanged
-    behaviour, just extracted into its own function so ``--two-player``
-    could be added alongside it without touching this at all."""
+    """The single-window, single-mouse-stream game loop.
+
+    *mapper* must already be constructed with the side-panel-aware
+    ``x_offset``/``y_offset`` (see ``main()``) — this function itself
+    just uses it via ``GraphicsBoardRenderer``/``ClickController``, same
+    as every other caller, since ``BoardMapper`` is the one place that
+    arithmetic belongs (see that class's own module docstring). Board,
+    White's panel, and Black's panel are laid out by
+    ``GraphicsBoardRenderer``'s own ``show_side_panels`` — see that
+    class's docstring and ``render_player_panel``'s for the full layout
+    and the bug (score text overlapping the board's own top-row pieces)
+    this replaces.
+    """
     quit_requested = False
     while not quit_requested:
         # Every per-game object is rebuilt fresh here, for the first game
@@ -266,7 +276,7 @@ def _run_single_player(
         # per-game state, just already-loaded sprites and fixed geometry.
         engine, state = _new_game(args, mapper)
         renderer = GraphicsBoardRenderer(
-            asset_loader, mapper, board_size=board_size, show_history_panel=True
+            asset_loader, mapper, board_size=board_size, show_side_panels=True
         )
         score_tracker = ScoreTracker()
         history_tracker = MoveHistoryTracker()
@@ -292,12 +302,18 @@ def _run_single_player(
             game_over_animation.sync(snapshot)
 
             renderer.render(snapshot, screen, selected=engine.selection)
-            renderer.render_scores(
+            renderer.render_player_panel(
                 screen,
+                Color.WHITE,
                 score_tracker.get_score(Color.WHITE),
-                score_tracker.get_score(Color.BLACK),
+                history_tracker.moves,
             )
-            renderer.render_move_history(screen, history_tracker.moves)
+            renderer.render_player_panel(
+                screen,
+                Color.BLACK,
+                score_tracker.get_score(Color.BLACK),
+                history_tracker.moves,
+            )
             renderer.render_game_over(
                 screen, snapshot.winner, game_over_animation.progress()
             )
@@ -415,12 +431,9 @@ def main():
 
     # Launch-config-derived setup: fixed for the process's whole lifetime,
     # unaffected by restarts (a restart rebuilds the game itself, not how
-    # it's launched) -- mapper/board_size, in particular, come from a
-    # one-time board read purely to size things, independent of whichever
-    # TextBoard instance actually ends up played on in a given game. Used
-    # identically by both single- and two-player mode: two-player mode's
-    # two halves are each exactly one board's worth of pixels, per the
-    # confirmed design (same orientation and size on both sides).
+    # it's launched) -- board_size, in particular, comes from a one-time
+    # board read purely to size things, independent of whichever TextBoard
+    # instance actually ends up played on in a given game.
     probe_board = _load_board(args.board)
     native_shape = Img().read(BOARD_PATH).img.shape
     native_height_px, native_width_px = native_shape[0], native_shape[1]
@@ -428,10 +441,22 @@ def main():
         native_width_px, native_height_px, probe_board.num_cols, probe_board.num_rows
     ).cell_size
     cell_size = _resolve_cell_size(args, default_cell_size)
-
-    mapper = BoardMapper(cell_size)
     board_size = (cell_size * probe_board.num_cols, cell_size * probe_board.num_rows)
     asset_loader = AssetLoader(PIECES_ROOT)  # sprite cache: reused across restarts
+
+    # Two different mappers for two different layouts sharing one cell_size:
+    # two-player mode's two halves each draw their own board starting at
+    # local (0, 0) (unchanged from before this task -- see _run_two_player),
+    # while single-player mode now draws the board offset within a wider
+    # canvas that also has side panels (see GraphicsBoardRenderer's
+    # show_side_panels and render_player_panel) -- its mapper must agree,
+    # per BoardMapper's own docstring on x_offset/y_offset.
+    two_player_mapper = BoardMapper(cell_size)
+    single_player_mapper = BoardMapper(
+        cell_size,
+        x_offset=2 * BOARD_MARGIN_PX + SIDE_PANEL_WIDTH_PX,
+        y_offset=BOARD_MARGIN_PX,
+    )
 
     pending_clicks = []
 
@@ -445,9 +470,11 @@ def main():
     screen = Img()
 
     if args.two_player:
-        _run_two_player(args, mapper, board_size, asset_loader, screen, pending_clicks)
+        _run_two_player(args, two_player_mapper, board_size, asset_loader, screen, pending_clicks)
     else:
-        _run_single_player(args, mapper, board_size, asset_loader, screen, pending_clicks)
+        _run_single_player(
+            args, single_player_mapper, board_size, asset_loader, screen, pending_clicks
+        )
 
     cv2.destroyAllWindows()
 
