@@ -235,6 +235,11 @@ class GraphicsBoardRenderer:
         is nonzero; only the background darkens over time, not the text
         itself (simplest effect that's still clearly time-based, per
         this feature's own brief).
+
+        Once *progress* reaches 1.0 (the fade has fully settled), an
+        additional restart/quit hint is drawn below the winner line —
+        held back until then so it doesn't compete for attention with
+        the game-over message while that's still animating in.
         """
         if progress <= 0:
             return
@@ -255,6 +260,15 @@ class GraphicsBoardRenderer:
         window_img.put_text(
             winner_text, text_x, text_y + 40, font_size=0.8, color=(255, 255, 255, 255)
         )
+
+        if progress >= 1.0:
+            window_img.put_text(
+                "Press R to play again, Q to quit",
+                text_x,
+                text_y + 80,
+                font_size=0.6,
+                color=(200, 200, 200, 255),
+            )
 
     def _draw_overlay_label(
         self,

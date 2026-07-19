@@ -135,32 +135,48 @@ def _load_board(board_path: "pathlib.Path | None") -> AbstractBoard:
         return TextBoard(STANDARD_BOARD_ROWS)
 
 
+def _new_game(args: argparse.Namespace, mapper: BoardMapper) -> "tuple[GameEngine, GameState]":
+    """Build a fresh ``GameEngine`` + ``GameState`` pair from *args*' launch
+    settings (the same ``--board`` source ``_load_board`` used at startup)
+    and the already-resolved *mapper*.
+
+    Used both for the very first game and every restart. A restart can't
+    just build a new ``GameState`` and keep the existing ``GameEngine``:
+    ``GameEngine``'s default ``GameOverRule`` (``KingCaptureRule``) is
+    stateful and explicitly documented as scoped to a single game — see
+    that class's own docstring: "don't share a ``KingCaptureRule`` across
+    two ``GameEngine`` instances." Reusing one would carry over which
+    colours it saw as "armed" (and already lost) from the previous game,
+    so the new game could report itself over immediately. A fresh
+    ``GameEngine`` (which primes a fresh ``KingCaptureRule`` from the
+    fresh board at construction) avoids that entirely.
+    """
+    board = _load_board(args.board)
+    engine = GameEngine(board, mapper=mapper)
+    state = GameState(board=board)
+    return engine, state
+
+
 def main():
     setup_logging()
     args = _parse_args()
 
-    board = _load_board(args.board)
-
+    # Launch-config-derived setup: fixed for the process's whole lifetime,
+    # unaffected by restarts (a restart rebuilds the game itself, not how
+    # it's launched) -- mapper/board_size, in particular, come from a
+    # one-time board read purely to size things, independent of whichever
+    # TextBoard instance actually ends up played on in a given game.
+    probe_board = _load_board(args.board)
     native_shape = Img().read(BOARD_PATH).img.shape
     native_height_px, native_width_px = native_shape[0], native_shape[1]
     default_cell_size = BoardMapper.from_board_pixels(
-        native_width_px, native_height_px, board.num_cols, board.num_rows
+        native_width_px, native_height_px, probe_board.num_cols, probe_board.num_rows
     ).cell_size
     cell_size = _resolve_cell_size(args, default_cell_size)
 
     mapper = BoardMapper(cell_size)
-    board_size = (cell_size * board.num_cols, cell_size * board.num_rows)
-
-    engine = GameEngine(board, mapper=mapper)
-    state = GameState(board=board)
-
-    asset_loader = AssetLoader(PIECES_ROOT)
-    renderer = GraphicsBoardRenderer(
-        asset_loader, mapper, board_size=board_size, show_history_panel=True
-    )
-    score_tracker = ScoreTracker()
-    history_tracker = MoveHistoryTracker()
-    game_over_animation = GameOverAnimation()
+    board_size = (cell_size * probe_board.num_cols, cell_size * probe_board.num_rows)
+    asset_loader = AssetLoader(PIECES_ROOT)  # sprite cache: reused across restarts
 
     pending_clicks = []
 
@@ -172,45 +188,66 @@ def main():
     cv2.setMouseCallback(WINDOW_NAME, on_mouse)
 
     screen = Img()
-    last_time = time.time()
 
-    while True:
-        now = time.time()
-        elapsed_ms = int((now - last_time) * 1000)
-        last_time = now
-
-        engine.tick(state, elapsed_ms)
-
-        for x, y in pending_clicks:
-            engine.handle_click(state, x, y)
-        pending_clicks.clear()
-
-        snapshot = GameSnapshot.from_state(state)
-        score_tracker.update(snapshot)
-        history_tracker.update(snapshot)
-        game_over_animation.sync(snapshot)
-
-        renderer.render(snapshot, screen, selected=engine.selection)
-        renderer.render_scores(
-            screen,
-            score_tracker.get_score(Color.WHITE),
-            score_tracker.get_score(Color.BLACK),
+    quit_requested = False
+    while not quit_requested:
+        # Every per-game object is rebuilt fresh here, for the first game
+        # and every restart alike -- see _new_game's own docstring for why
+        # GameEngine specifically can't just be reused. renderer is rebuilt
+        # too (fresh _piece_views, so no stale PieceView/animation state
+        # carries over) but asset_loader/mapper aren't: neither holds any
+        # per-game state, just already-loaded sprites and fixed geometry.
+        engine, state = _new_game(args, mapper)
+        renderer = GraphicsBoardRenderer(
+            asset_loader, mapper, board_size=board_size, show_history_panel=True
         )
-        renderer.render_move_history(screen, history_tracker.moves)
-        renderer.render_game_over(screen, snapshot.winner, game_over_animation.progress())
+        score_tracker = ScoreTracker()
+        history_tracker = MoveHistoryTracker()
+        game_over_animation = GameOverAnimation()
 
-        # Img.show() blocks on cv2.waitKey(0) and tears the window down
-        # right after — incompatible with a continuous render loop, so this
-        # polls cv2 directly instead, same as the rest of this pipeline.
-        cv2.imshow(WINDOW_NAME, screen.img)
-        key = cv2.waitKey(30)
-        # Unlike before this feature, game_over no longer breaks the loop
-        # by itself -- the whole point of an animated, persistent
-        # game-over screen is that it keeps rendering (and the window
-        # stays open) after the game ends, until the user closes it
-        # with ESC.
-        if key == ESC:
-            break
+        restart_requested = False
+        last_time = time.time()
+
+        while not restart_requested and not quit_requested:
+            now = time.time()
+            elapsed_ms = int((now - last_time) * 1000)
+            last_time = now
+
+            engine.tick(state, elapsed_ms)
+
+            for x, y in pending_clicks:
+                engine.handle_click(state, x, y)
+            pending_clicks.clear()
+
+            snapshot = GameSnapshot.from_state(state)
+            score_tracker.update(snapshot)
+            history_tracker.update(snapshot)
+            game_over_animation.sync(snapshot)
+
+            renderer.render(snapshot, screen, selected=engine.selection)
+            renderer.render_scores(
+                screen,
+                score_tracker.get_score(Color.WHITE),
+                score_tracker.get_score(Color.BLACK),
+            )
+            renderer.render_move_history(screen, history_tracker.moves)
+            renderer.render_game_over(
+                screen, snapshot.winner, game_over_animation.progress()
+            )
+
+            # Img.show() blocks on cv2.waitKey(0) and tears the window down
+            # right after — incompatible with a continuous render loop, so
+            # this polls cv2 directly instead, same as the rest of this
+            # pipeline.
+            cv2.imshow(WINDOW_NAME, screen.img)
+            key = cv2.waitKey(30)
+
+            if key == ESC:
+                quit_requested = True
+            elif snapshot.game_over and key in (ord("q"), ord("Q")):
+                quit_requested = True
+            elif snapshot.game_over and key in (ord("r"), ord("R")):
+                restart_requested = True
 
     cv2.destroyAllWindows()
 
