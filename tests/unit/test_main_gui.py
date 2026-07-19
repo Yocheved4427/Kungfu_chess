@@ -41,6 +41,16 @@ class TestParseArgs:
         args = main_gui._parse_args()
         assert args.board == board_file
 
+    def test_two_player_defaults_to_false(self, monkeypatch):
+        monkeypatch.setattr("sys.argv", ["main_gui.py"])
+        args = main_gui._parse_args()
+        assert args.two_player is False
+
+    def test_two_player_flag_is_parsed(self, monkeypatch):
+        monkeypatch.setattr("sys.argv", ["main_gui.py", "--two-player"])
+        args = main_gui._parse_args()
+        assert args.two_player is True
+
     def test_scale_defaults_to_one(self, monkeypatch):
         monkeypatch.setattr("sys.argv", ["main_gui.py"])
         args = main_gui._parse_args()
