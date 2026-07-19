@@ -504,7 +504,8 @@ class GameEngine:
         if stop_pos is not None:
             if stop_pos != pm.from_pos:
                 state.board.move_piece(pm.from_pos, stop_pos)
-                self._maybe_promote(state, pm.piece, stop_pos)
+                if not self._capture_just_ended_the_game(state):
+                    self._maybe_promote(state, pm.piece, stop_pos)
                 self._set_cooldown(state, stop_pos)
                 self._notify(
                     MoveCompletedEvent(
@@ -534,7 +535,8 @@ class GameEngine:
             return
 
         state.board.move_piece(pm.from_pos, pm.to_pos)
-        self._maybe_promote(state, pm.piece, pm.to_pos)
+        if not self._capture_just_ended_the_game(state):
+            self._maybe_promote(state, pm.piece, pm.to_pos)
         self._set_cooldown(state, pm.to_pos)
         self._notify(
             MoveCompletedEvent(
@@ -619,6 +621,27 @@ class GameEngine:
         last_row = 0 if piece[0] == "w" else state.board.num_rows - 1
         if pos.row == last_row:
             state.board.set_piece_at(pos, piece[0] + "Q")
+
+    def _capture_just_ended_the_game(self, state: GameState) -> bool:
+        """True iff *state*'s board, as it stands right now, already
+        satisfies the injected ``GameOverRule`` — asked right after a
+        move/capture is applied in ``_resolve_due_move``, to decide
+        whether a pawn that just captured the enemy king on the back
+        rank should still be promoted (it shouldn't: the game is already
+        decided, and the piece should be recorded/rendered as the pawn
+        that made the winning capture, not as a promoted queen).
+
+        Read-only — unlike ``_check_game_over`` this never sets
+        ``state.game_over``/``state.winner`` or fires ``GameOverEvent``;
+        that transition still happens exactly once per ``tick()``, after
+        all due moves are processed, completely unchanged. This just asks
+        the same rule the same question a little early, for one narrow
+        decision, without touching game-over's own timing.
+
+        Also covers the case where an *earlier* due move in this same
+        tick already ended the game — not just this move's own capture.
+        """
+        return self._game_over_rule.check(state.board).is_over
 
     def _check_game_over(self, state: GameState) -> None:
         """Ask the injected ``GameOverRule`` whether *state*'s game just ended.

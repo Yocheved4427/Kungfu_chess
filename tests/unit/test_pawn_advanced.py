@@ -14,7 +14,7 @@ only GameEngine performs (via AbstractBoard.set_piece_at).
 
 from __future__ import annotations
 
-from core.models import Position
+from core.models import Color, Position
 from engine.board import TextBoard
 from engine.game import GameEngine
 from engine.game_state import GameState
@@ -189,3 +189,43 @@ class TestPromotion:
         assert len(completed) == 1
         assert completed[0].piece == "wP"  # event reports the pre-promotion piece
         assert state.board.get_piece_at(Position(0, 0)) == "wQ"
+
+
+# ===========================================================================
+# Promotion vs. a simultaneous king-capture win
+# ===========================================================================
+#
+# A pawn that captures the enemy King by landing on the back rank has
+# already won the game in that same move -- promoting it to a Queen right
+# afterward is meaningless (the game is over) and visually confusing (any
+# game-over recap/animation would show a Queen instead of the pawn that
+# actually delivered the winning capture). See TestGameOverEndsTheGame in
+# test_game_over.py for the equivalent king-capture-only wiring this
+# builds on.
+# ===========================================================================
+
+class TestPromotionSkippedWhenTheCaptureEndsTheGame:
+    def test_pawn_capturing_the_king_on_the_back_rank_is_not_promoted(self):
+        # wP at (1,1) diagonally captures bK at (0,0) -- lands on White's
+        # back rank (row 0) in the very same move that wins the game.
+        board = TextBoard(["bK .", ". wP"])
+        engine = GameEngine(board, cell_size=100, move_duration=500)
+        state = GameState(board=board)
+        engine.handle_click(state, 100, 100)  # select wP at (1,1)
+        engine.handle_click(state, 0, 0)      # capture bK at (0,0)
+        engine.tick(state, 500)
+        assert state.board.get_piece_at(Position(0, 0)) == "wP"
+        assert state.game_over is True
+        assert state.winner is Color.WHITE
+
+    def test_normal_promotion_without_a_king_capture_is_unaffected(self):
+        """Regression guard: the skip above must not affect the ordinary
+        promotion path when no king capture is involved."""
+        board = TextBoard([". .", "wP ."])
+        engine = GameEngine(board, cell_size=100, move_duration=500)
+        state = GameState(board=board)
+        engine.handle_click(state, 0, 100)  # select wP at (1,0)
+        engine.handle_click(state, 0, 0)    # forward to (0,0)
+        engine.tick(state, 500)
+        assert state.board.get_piece_at(Position(0, 0)) == "wQ"
+        assert state.game_over is False
