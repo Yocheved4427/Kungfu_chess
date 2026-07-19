@@ -14,6 +14,7 @@ from engine.rule_engine import MoveResult, RuleEngine
 from engine.rules import MoveValidator
 from input.board_mapper import BoardMapper
 from realtime.collision_resolver import CollisionResolver
+from ui.bus import Bus
 from ui.events import (
     AirborneCaptureEvent,
     GameEvent,
@@ -216,7 +217,7 @@ class GameEngine:
         self._collision_resolver: CollisionResolver = (
             collision_resolver if collision_resolver is not None else CollisionResolver()
         )
-        self._observers: List[Observer] = []
+        self._bus: Bus = Bus()
         # Prime the rule with the pristine starting board — before any
         # move can run — so a stateful rule like KingCaptureRule can tell
         # "this colour never had a King" apart from "its King was
@@ -232,12 +233,16 @@ class GameEngine:
     # ------------------------------------------------------------------
 
     def add_observer(self, observer: Observer) -> None:
-        """Register *observer* to receive future ``GameEvent`` notifications."""
-        self._observers.append(observer)
+        """Register *observer* to receive future ``GameEvent`` notifications.
+
+        Delegates to an internal ``Bus`` (see ui/bus.py) — this method's
+        own name/signature is unchanged from before that formalization,
+        so every existing caller keeps working as-is.
+        """
+        self._bus.subscribe(observer)
 
     def _notify(self, event: GameEvent) -> None:
-        for obs in self._observers:
-            obs.on_event(event)
+        self._bus.publish(event)
 
     def request_render(self, state: GameState) -> None:
         """Broadcast a ``RenderEvent`` carrying *state*'s board text."""

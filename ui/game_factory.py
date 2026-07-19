@@ -11,6 +11,7 @@ from engine.game import GameEngine
 from engine.game_state import GameState
 from input.board_mapper import BoardMapper
 from input.board_parser import BoardParser
+from ui.observers import GameLifecycleObserver, SoundTriggerObserver
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +69,19 @@ def _new_game(args: argparse.Namespace, mapper: BoardMapper) -> "tuple[GameEngin
     so the new game could report itself over immediately. A fresh
     ``GameEngine`` (which primes a fresh ``KingCaptureRule`` from the
     fresh board at construction) avoids that entirely.
+
+    Also registers a fresh ``SoundTriggerObserver``/``GameLifecycleObserver``
+    pair on the new engine (see ui/observers.py) — fresh per call for the
+    same reason the engine itself is: ``GameLifecycleObserver`` tracks
+    per-game "have I already logged this game's start" state, so reusing
+    one across a restart would silently swallow the new game's own start
+    log. This is purely additive: ``ScoreTracker``/``MoveHistoryTracker``
+    keep working exactly as before, via their own snapshot-diffing in the
+    render loop, not as Observers.
     """
     board = _load_board(args.board)
     engine = GameEngine(board, mapper=mapper)
+    engine.add_observer(SoundTriggerObserver())
+    engine.add_observer(GameLifecycleObserver())
     state = GameState(board=board)
     return engine, state
