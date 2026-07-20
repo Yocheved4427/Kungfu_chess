@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/unit/test_algebraic.py -v)",
+      "Bash(python -m pytest tests/unit/test_server.py -v)",
+      "Read(//tmp/**)"
+    ]
+  }
+}
