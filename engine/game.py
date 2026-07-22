@@ -5,7 +5,7 @@ from typing import List
 
 from controllers.click_controller import ClickController
 from core.config import COOLDOWN_DURATION, JUMP_DURATION, MOVE_DURATION
-from core.models import PendingJump, PendingMove, Position, same_color
+from core.models import MoveCheckpoint, PendingJump, PendingMove, Position, same_color
 from engine.board import AbstractBoard
 from engine.board_renderer import BoardRenderer, TextBoardRenderer
 from engine.game_over import GameOverRule, KingCaptureRule
@@ -306,20 +306,39 @@ class GameEngine:
         if self._route_conflicts(state, piece, from_pos, to_pos):
             return False
 
-        cells_moved = max(
-            abs(from_pos.row - to_pos.row),
-            abs(from_pos.col - to_pos.col),
-        )
-        arrival = state.current_time + cells_moved * self._move_duration
+        checkpoints = self._build_checkpoints(from_pos, to_pos, state.current_time)
         state.pending.append(
             PendingMove(
                 piece=piece,
                 from_pos=from_pos,
                 to_pos=to_pos,
-                arrival_time=arrival,
+                arrival_time=checkpoints[-1].due_time,
+                start_time=state.current_time,
+                checkpoints=checkpoints,
             )
         )
         return True
+
+    def _build_checkpoints(
+        self, from_pos: Position, to_pos: Position, queued_time: int
+    ) -> "tuple[MoveCheckpoint, ...]":
+        """Break a move from *from_pos* to *to_pos*, queued at
+        *queued_time*, into one ``MoveCheckpoint`` per cell along its
+        straight-line path — every intermediate cell (via
+        ``CollisionResolver.path_cells``, shared rather than re-walked
+        here), plus ``to_pos`` last — evenly spaced ``self._move_duration``
+        ms apart. The total duration (``len(cells) * self._move_duration``)
+        is unchanged from before per-cell checkpoints existed; this only
+        subdivides it. A non-straight-line move (Knight) or an adjacent
+        one-cell move has no intermediate cells, so this returns just the
+        single final checkpoint — ``checkpoints[-1]`` is always ``to_pos``
+        due at what ``arrival_time`` has always meant.
+        """
+        cells = self._collision_resolver.path_cells(from_pos, to_pos) + [to_pos]
+        return tuple(
+            MoveCheckpoint(pos=cell, due_time=queued_time + (i + 1) * self._move_duration)
+            for i, cell in enumerate(cells)
+        )
 
     def try_move(self, state: GameState, from_pos: Position, to_pos: Position) -> MoveResult:
         """Synchronous, ``RuleEngine``-backed move against *state* —
@@ -423,21 +442,28 @@ class GameEngine:
     def tick(self, state: GameState, ms: int) -> None:
         """Advance *state*'s game clock by *ms* milliseconds.
 
-        After updating ``current_time``, all pending moves whose
-        ``arrival_time <= current_time`` are executed in chronological
-        order (earliest ``arrival_time`` first; ties keep queue order) —
-        see ``_resolve_due_move`` for how each one is decided; the
-        friendly-mid-route-block and airborne-interception logic it
-        leans on lives in ``CollisionResolver``, not here.
+        After updating ``current_time``, every pending move's checkpoints
+        whose ``due_time <= current_time`` are resolved one at a time, in
+        chronological order across ALL pending moves (earliest due
+        checkpoint first; ties keep queue order) — see
+        ``_resolve_checkpoint`` for how each one is decided; the
+        friendly-mid-route-block and airborne-interception logic it leans
+        on lives in ``CollisionResolver``, not here. A move with several
+        intermediate checkpoints is resolved incrementally, one checkpoint
+        per pass through this loop, so a DIFFERENT move's checkpoint due
+        at an earlier or equal moment is always applied first — same
+        cross-move ordering guarantee this method always had, just at
+        checkpoint granularity now rather than only at each move's own
+        final ``arrival_time``.
 
-        Because earlier-arriving moves in the same tick are applied first,
-        a later move's re-validation sees their results — e.g. two pieces
-        racing for the same square: whichever arrives first occupies it,
-        and a second, later-arriving enemy can still capture it there,
-        while a second, later-arriving friendly is rejected as blocked.
-        An airborne defender can defeat multiple arrivals in the same
-        tick this way — it never leaves its cell, so each subsequent
-        arrival still finds it there.
+        Because earlier-due checkpoints are applied first, a later one's
+        re-validation sees their results — e.g. two pieces racing for the
+        same square: whichever arrives first occupies it, and a second,
+        later-arriving enemy can still capture it there, while a second,
+        later-arriving friendly is rejected as blocked. An airborne
+        defender can defeat multiple arrivals in the same tick this way —
+        it never leaves its cell, so each subsequent arrival still finds
+        it there.
 
         Finally, jumps are resolved: any ``PendingJump`` whose
         ``land_time <= current_time`` grounds (``JumpLandedEvent``) —
@@ -448,15 +474,11 @@ class GameEngine:
         state.current_time += ms
         logger.debug("tick: +%dms -> current_time=%dms", ms, state.current_time)
 
-        due: List[PendingMove] = []
-        remaining: List[PendingMove] = []
-        for pm in state.pending:
-            (due if pm.arrival_time <= state.current_time else remaining).append(pm)
-        state.pending = remaining
-        due.sort(key=lambda pm: pm.arrival_time)
-
-        for pm in due:
-            self._resolve_due_move(state, pm)
+        while True:
+            pm = self._next_due_move(state)
+            if pm is None:
+                break
+            self._resolve_checkpoint(state, pm)
 
         grounded: List[PendingJump] = []
         still_airborne: List[PendingJump] = []
@@ -470,56 +492,102 @@ class GameEngine:
         self._check_game_over(state)
         self._notify(TimeAdvancedEvent(current_time=state.current_time))
 
-    def _resolve_due_move(self, state: GameState, pm: PendingMove) -> None:
-        """Apply a single due ``PendingMove``'s outcome against *state*,
-        deferring the friendly-block and airborne-interception
-        *decisions* to ``CollisionResolver`` — this method stays the sole
-        place that mutates the board and fires events, per the class's
-        board-ownership contract.
+    def _effective_checkpoints(self, pm: PendingMove) -> "tuple[MoveCheckpoint, ...]":
+        """*pm*'s checkpoint list, falling back to a single implicit
+        final-only checkpoint for a ``PendingMove`` built without
+        checkpoint data (e.g. directly in a test) — mirrors this engine's
+        behaviour from before per-cell checkpoint timing existed."""
+        return pm.checkpoints or (MoveCheckpoint(pm.to_pos, pm.arrival_time),)
+
+    def _next_due_move(self, state: GameState) -> PendingMove | None:
+        """The pending move whose next unresolved checkpoint is due
+        soonest (and already ``<= current_time``), or None if no move has
+        one due yet. Ties keep ``state.pending``'s own order (the first
+        candidate found at the smallest due_time wins, never replaced by
+        a later-found one at the same time) — same tie-break this method
+        replaces already had."""
+        best: PendingMove | None = None
+        best_due_time: int | None = None
+        for pm in state.pending:
+            due_time = self._effective_checkpoints(pm)[pm.next_checkpoint].due_time
+            if due_time > state.current_time:
+                continue
+            if best is None or due_time < best_due_time:
+                best = pm
+                best_due_time = due_time
+        return best
+
+    def _resolve_checkpoint(self, state: GameState, pm: PendingMove) -> None:
+        """Resolve *pm*'s next due checkpoint — whichever one
+        ``_next_due_move`` just selected — deferring the friendly-block
+        and airborne-interception *decisions* to ``CollisionResolver``;
+        this method stays the sole place that mutates the board and fires
+        events, per the class's board-ownership contract.
 
         * The origin must still hold the same piece (it wasn't captured,
-          or hasn't already been moved/re-executed) — otherwise dropped.
-        * If a FRIENDLY piece now sits somewhere strictly between origin
-          and destination (``CollisionResolver.stop_before_friendly_block``),
-          the mover stops on the last clear square before it instead of
-          being dropped outright (a no-op if that square is its own
-          origin). An ENEMY piece blocking the same way is a different
-          case: the whole move is dropped, same as always — via the
-          ordinary path-clear check inside ``MoveValidator.is_valid``.
-        * Otherwise, the move must still be legal (``MoveValidator.is_valid``),
-          which re-checks the destination content (friendly-piece landing is
-          rejected, an enemy piece there is still a legal capture) and,
-          for sliding pieces, that the path is still clear (a piece that
-          moved into the path since queuing blocks it).
-        * If the destination is an *airborne enemy*'s cell
-          (``CollisionResolver.airborne_defender``), the jump wins: the
-          defender never moves and the arriving piece is removed outright
-          (``AirborneCaptureEvent``) instead of relocating there (no
-          ``MoveCompletedEvent`` for it).
+          or this move hasn't already been resolved) — otherwise dropped.
+        * If this checkpoint is INTERMEDIATE (not the move's last) and a
+          FRIENDLY piece now sits on it (``CollisionResolver.
+          is_friendly_occupied``), the mover stops here — on the
+          PREVIOUS checkpoint's cell (or ``from_pos`` if this is the very
+          first one) — instead of being dropped outright (a no-op if that
+          cell is its own origin). An ENEMY there does nothing at this
+          checkpoint's own moment: the move keeps going, exactly as
+          before per-cell timing existed — a still-blocking enemy is
+          caught by the ordinary path-clear check inside
+          ``MoveValidator.is_valid``, evaluated fresh at the FINAL
+          checkpoint, same as always.
+        * If this checkpoint is INTERMEDIATE and clear (of a friendly),
+          nothing else happens except advancing to the next one — the
+          piece was never actually AT this cell (it's still ``from_pos``
+          on the board the whole flight — see ``core.models.PendingMove``'s
+          own docstring), so no board mutation, no event.
+        * If this checkpoint IS the move's last, it resolves exactly as a
+          whole move always has: ``MoveValidator.is_valid`` (destination
+          content + path-clear) and airborne-defender interception, then
+          apply/promote/notify.
 
         A rejected move is simply dropped (no event, no retry) — it does
-        not go back on the pending queue. For a move actually applied, a
+        not go back on the pending queue. For a move actually applied
+        (whether reaching its final destination or stopping early), a
         ``MoveCompletedEvent`` is fired and the landing cell starts its
         cooldown window.
         """
+        state.pending.remove(pm)
+
         if state.board.get_piece_at(pm.from_pos) != pm.piece:
             return
 
-        stop_pos = self._collision_resolver.stop_before_friendly_block(pm, state.board)
-        if stop_pos is not None:
-            if stop_pos != pm.from_pos:
-                state.board.move_piece(pm.from_pos, stop_pos)
-                if not self._capture_just_ended_the_game(state):
-                    self._maybe_promote(state, pm.piece, stop_pos)
-                self._set_cooldown(state, stop_pos)
-                self._notify(
-                    MoveCompletedEvent(
-                        piece=pm.piece,
-                        from_pos=pm.from_pos,
-                        to_pos=stop_pos,
-                        arrival_time=pm.arrival_time,
-                    )
+        checkpoints = self._effective_checkpoints(pm)
+        checkpoint = checkpoints[pm.next_checkpoint]
+        is_final = pm.next_checkpoint == len(checkpoints) - 1
+
+        if not is_final:
+            if self._collision_resolver.is_friendly_occupied(
+                checkpoint.pos, pm.piece, state.board
+            ):
+                stop_pos = (
+                    checkpoints[pm.next_checkpoint - 1].pos
+                    if pm.next_checkpoint > 0
+                    else pm.from_pos
                 )
+                self._land(state, pm, stop_pos, checkpoint.due_time)
+                return
+
+            # Clear of a friendly (an enemy here is deferred to the final
+            # checkpoint's own path-clear check, unchanged) -- this
+            # checkpoint is done; keep waiting on the rest of the path.
+            state.pending.append(
+                PendingMove(
+                    piece=pm.piece,
+                    from_pos=pm.from_pos,
+                    to_pos=pm.to_pos,
+                    arrival_time=pm.arrival_time,
+                    start_time=pm.start_time,
+                    checkpoints=pm.checkpoints,
+                    next_checkpoint=pm.next_checkpoint + 1,
+                )
+            )
             return
 
         if not self._validator.is_valid(pm.piece, pm.from_pos, pm.to_pos, state.board):
@@ -539,16 +607,29 @@ class GameEngine:
             )
             return
 
-        state.board.move_piece(pm.from_pos, pm.to_pos)
+        self._land(state, pm, pm.to_pos, checkpoint.due_time)
+
+    def _land(self, state: GameState, pm: PendingMove, pos: Position, arrival_time: int) -> None:
+        """Relocate ``pm.piece`` from ``pm.from_pos`` to *pos* and fire the
+        landing side effects — shared by both ways a move can conclude:
+        reaching its final destination, or stopping early at an
+        intermediate cell because a friendly now blocks the rest of the
+        path (see ``_resolve_checkpoint``). A no-op (``pos == pm.from_pos``,
+        i.e. blocked on the very first step) fires no event either —
+        the piece simply never moved.
+        """
+        if pos == pm.from_pos:
+            return
+        state.board.move_piece(pm.from_pos, pos)
         if not self._capture_just_ended_the_game(state):
-            self._maybe_promote(state, pm.piece, pm.to_pos)
-        self._set_cooldown(state, pm.to_pos)
+            self._maybe_promote(state, pm.piece, pos)
+        self._set_cooldown(state, pos)
         self._notify(
             MoveCompletedEvent(
                 piece=pm.piece,
                 from_pos=pm.from_pos,
-                to_pos=pm.to_pos,
-                arrival_time=pm.arrival_time,
+                to_pos=pos,
+                arrival_time=arrival_time,
             )
         )
 

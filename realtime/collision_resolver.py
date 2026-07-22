@@ -28,6 +28,50 @@ class CollisionResolver:
     """Resolves route-blocking and airborne-interception outcomes for a
     due ``PendingMove`` against the board's current state."""
 
+    def path_cells(self, from_pos: Position, to_pos: Position) -> List[Position]:
+        """Return the ordered list of cells strictly between *from_pos*
+        and *to_pos* on a straight line (orthogonal or diagonal) —
+        excludes both endpoints, nearest-to-``from_pos`` first. Empty
+        for a non-straight-line move (e.g. a Knight's jump) or adjacent
+        cells (no intermediate square at all).
+
+        Pure geometry, no board access — shared by
+        ``stop_before_friendly_block`` (walks this list checking
+        occupancy at each cell in one shot) and ``GameEngine``'s per-move
+        checkpoint computation (each cell becomes its own individually
+        timed waypoint — see ``core.models.PendingMove.checkpoints``).
+        """
+        if not (is_orthogonal(from_pos, to_pos) or is_diagonal(from_pos, to_pos)):
+            return []
+
+        dr = to_pos.row - from_pos.row
+        dc = to_pos.col - from_pos.col
+        steps = max(abs(dr), abs(dc))
+        if steps < 2:
+            return []  # adjacent cells have no square between them
+
+        step_r = dr // steps
+        step_c = dc // steps
+        cells: List[Position] = []
+        r, c = from_pos.row + step_r, from_pos.col + step_c
+        while (r, c) != (to_pos.row, to_pos.col):
+            cells.append(Position(r, c))
+            r += step_r
+            c += step_c
+        return cells
+
+    def is_friendly_occupied(self, pos: Position, piece: str, board: AbstractBoard) -> bool:
+        """True iff *pos* is currently occupied by a piece of the same
+        colour as *piece*.
+
+        The single-cell version of the per-cell occupancy+colour check
+        ``stop_before_friendly_block`` performs while walking a whole
+        path in one shot — used by ``GameEngine`` to check one specific
+        checkpoint at its own due time instead of only at the end of the
+        move (see ``GameEngine._resolve_checkpoint``).
+        """
+        return same_color(board.get_piece_at(pos), piece)
+
     def stop_before_friendly_block(
         self, pm: PendingMove, board: AbstractBoard
     ) -> Position | None:
@@ -48,28 +92,12 @@ class CollisionResolver:
           cell before it (which is ``pm.from_pos`` itself if that very
           first step is already blocked — the piece simply doesn't move).
         """
-        from_pos, to_pos = pm.from_pos, pm.to_pos
-        if not (is_orthogonal(from_pos, to_pos) or is_diagonal(from_pos, to_pos)):
-            return None
-
-        dr = to_pos.row - from_pos.row
-        dc = to_pos.col - from_pos.col
-        steps = max(abs(dr), abs(dc))
-        if steps < 2:
-            return None  # adjacent cells have no square between them
-
-        step_r = dr // steps
-        step_c = dc // steps
-        prev = from_pos
-        r, c = from_pos.row + step_r, from_pos.col + step_c
-        while (r, c) != (to_pos.row, to_pos.col):
-            cell = Position(r, c)
+        prev = pm.from_pos
+        for cell in self.path_cells(pm.from_pos, pm.to_pos):
             occupant = board.get_piece_at(cell)
             if occupant != ".":
                 return prev if same_color(occupant, pm.piece) else None
             prev = cell
-            r += step_r
-            c += step_c
         return None  # path fully clear
 
     def airborne_defender(
