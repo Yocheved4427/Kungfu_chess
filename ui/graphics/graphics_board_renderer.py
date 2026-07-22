@@ -8,6 +8,7 @@ from asset_loader import AssetLoader
 from core.models import Color, Position
 from img import Img
 from input.board_mapper import BoardMapper
+from motion import interpolate_position
 from paths import REPO_ROOT
 from piece_state_machine import PieceStateMachine
 from piece_view import PieceView
@@ -155,6 +156,14 @@ class GraphicsBoardRenderer:
         header comment) and only reachable via ``GameEngine.selection``.
         Defaults to ``None`` so every existing caller/test keeps working
         unchanged.
+
+        A piece currently in transit (its cell is some pending move's
+        ``from_pos``) is drawn at an interpolated sub-cell position (see
+        ``motion.interpolate_position``) instead of its fixed grid cell,
+        so it visibly glides toward its destination rather than jumping
+        there the instant the move resolves. A piece that isn't moving
+        renders exactly as before, at its fixed cell — this is purely
+        additive to the drawing step, no change to ``GameState`` itself.
         """
         if self._show_side_panels:
             side_pad = 2 * BOARD_MARGIN_PX + SIDE_PANEL_WIDTH_PX
@@ -176,6 +185,11 @@ class GraphicsBoardRenderer:
 
         self._sync_piece_views(game_snapshot.board)
 
+        # Keyed by from_pos -- at most one pending move can originate from
+        # any given cell (a busy piece can't be redirected, see
+        # GameEngine._is_busy), so this is an unambiguous lookup.
+        in_transit = {pm.from_pos: pm for pm in game_snapshot.pending}
+
         cell_size = self._mapper.cell_size
         for position, view in self._piece_views.items():
             frame = view.get_current_frame()
@@ -189,7 +203,18 @@ class GraphicsBoardRenderer:
                 frame.img, (cell_size, cell_size), interpolation=cv2.INTER_AREA
             )
 
-            x, y = self._mapper.cell_to_pixel(position.row, position.col)
+            pending_move = in_transit.get(position)
+            if pending_move is not None:
+                row, col = interpolate_position(pending_move, game_snapshot.current_time)
+            else:
+                row, col = position.row, position.col
+            # BoardMapper.cell_to_pixel is pure arithmetic (col * cell_size
+            # + offset, row * cell_size + offset) so it works unchanged on
+            # the float (row, col) an in-transit piece interpolates to —
+            # only the final pixel coordinates need rounding to ints,
+            # since Img.draw_on indexes a numpy array with them.
+            raw_x, raw_y = self._mapper.cell_to_pixel(row, col)
+            x, y = round(raw_x), round(raw_y)
             scaled.draw_on(window_img, x, y)
 
             piece = game_snapshot.board.get_piece_at(position)
