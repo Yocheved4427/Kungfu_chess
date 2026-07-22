@@ -8,153 +8,25 @@ GRAPHICS_DIR = REPO_ROOT / "ui" / "graphics"
 # their own directory is on sys.path.
 sys.path.insert(0, str(GRAPHICS_DIR))
 
-import argparse
 import logging
-import time
 
 import cv2
 
 from asset_loader import AssetLoader
-from game_over_animation import GameOverAnimation
-from graphics_board_renderer import GraphicsBoardRenderer
+from graphics_board_renderer import BOARD_MARGIN_PX, SIDE_PANEL_WIDTH_PX
 from img import Img
 
-from core.config import VALID_PIECE_CHARS
-from core.models import Color
-from engine.board import AbstractBoard, TextBoard
-from engine.board_validator import BoardValidationError, BoardValidator
-from engine.game import GameEngine
-from engine.game_state import GameState
-from engine.move_history_tracker import MoveHistoryTracker
-from engine.score_tracker import ScoreTracker
-from engine.snapshot import GameSnapshot
 from input.board_mapper import BoardMapper
-from input.board_parser import BoardParser
 from logger_config import setup_logging
+from ui.cli import _parse_args, _resolve_cell_size
+from ui.game_factory import _load_board
+from ui.game_loop import WINDOW_NAME, _run_single_player, _run_two_player
 
 logger = logging.getLogger(__name__)
 
 ASSETS_ROOT = REPO_ROOT / "assets"
 BOARD_PATH = ASSETS_ROOT / "board.png"
 PIECES_ROOT = ASSETS_ROOT / "pieces3"
-
-STANDARD_BOARD_ROWS = [
-    "bR bN bB bQ bK bB bN bR",
-    "bP bP bP bP bP bP bP bP",
-    ". . . . . . . .",
-    ". . . . . . . .",
-    ". . . . . . . .",
-    ". . . . . . . .",
-    "wP wP wP wP wP wP wP wP",
-    "wR wN wB wQ wK wB wN wR",
-]
-
-WINDOW_NAME = "Kung Fu Chess"
-ESC = 27
-
-
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Kung Fu Chess GUI")
-    parser.add_argument(
-        "--board",
-        type=pathlib.Path,
-        default=None,
-        help=(
-            "Path to a text file with a custom starting board layout "
-            "(same row format as STANDARD_BOARD_ROWS). Falls back to the "
-            "standard layout if omitted, unreadable, or invalid."
-        ),
-    )
-    parser.add_argument(
-        "--scale",
-        type=float,
-        default=1.0,
-        help=(
-            "Scale factor applied to the default cell size (the size "
-            "main() would otherwise derive from board.png's own pixel "
-            "dimensions). Ignored if --cell-size is also given. Default: 1.0."
-        ),
-    )
-    parser.add_argument(
-        "--cell-size",
-        type=int,
-        default=None,
-        help=(
-            "Exact pixel size of one board cell. Wins over --scale if "
-            "both are given (a warning is logged noting --scale was "
-            "ignored). Default: derived from board.png."
-        ),
-    )
-    return parser.parse_args()
-
-
-def _resolve_cell_size(args: argparse.Namespace, default_cell_size: int) -> int:
-    """Return the cell size (px) to render at, per --cell-size/--scale.
-
-    --cell-size wins outright when given — --scale is ignored, with a
-    warning logged iff a non-default --scale was also given (so silently
-    dropping it isn't a total surprise). Otherwise, --scale multiplies
-    *default_cell_size*.
-    """
-    if args.cell_size is not None:
-        if args.scale != 1.0:
-            logger.warning(
-                "Both --cell-size (%d) and --scale (%.3g) were given; "
-                "--cell-size wins and --scale is ignored.",
-                args.cell_size,
-                args.scale,
-            )
-        return args.cell_size
-    return round(default_cell_size * args.scale)
-
-
-def _load_board(board_path: "pathlib.Path | None") -> AbstractBoard:
-    """Return the board to start the game with.
-
-    Parses and validates *board_path* via the same ``BoardParser`` /
-    ``BoardValidator`` pair ``main.py`` uses for the CLI pipeline — no
-    second parser. Falls back to ``STANDARD_BOARD_ROWS`` (with a logged
-    warning) if *board_path* is ``None``, unreadable, or fails
-    validation; never raises.
-    """
-    if board_path is None:
-        return TextBoard(STANDARD_BOARD_ROWS)
-
-    try:
-        with open(board_path, "r") as f:
-            lines = f.readlines()
-        board = BoardParser().parse(lines)
-        BoardValidator(valid_chars=VALID_PIECE_CHARS).validate(board.get_rows())
-        return board
-    except (OSError, BoardValidationError) as e:
-        logger.warning(
-            "Failed to load board from %s (%s) — falling back to the standard starting layout.",
-            board_path,
-            e,
-        )
-        return TextBoard(STANDARD_BOARD_ROWS)
-
-
-def _new_game(args: argparse.Namespace, mapper: BoardMapper) -> "tuple[GameEngine, GameState]":
-    """Build a fresh ``GameEngine`` + ``GameState`` pair from *args*' launch
-    settings (the same ``--board`` source ``_load_board`` used at startup)
-    and the already-resolved *mapper*.
-
-    Used both for the very first game and every restart. A restart can't
-    just build a new ``GameState`` and keep the existing ``GameEngine``:
-    ``GameEngine``'s default ``GameOverRule`` (``KingCaptureRule``) is
-    stateful and explicitly documented as scoped to a single game — see
-    that class's own docstring: "don't share a ``KingCaptureRule`` across
-    two ``GameEngine`` instances." Reusing one would carry over which
-    colours it saw as "armed" (and already lost) from the previous game,
-    so the new game could report itself over immediately. A fresh
-    ``GameEngine`` (which primes a fresh ``KingCaptureRule`` from the
-    fresh board at construction) avoids that entirely.
-    """
-    board = _load_board(args.board)
-    engine = GameEngine(board, mapper=mapper)
-    state = GameState(board=board)
-    return engine, state
 
 
 def main():
@@ -163,9 +35,9 @@ def main():
 
     # Launch-config-derived setup: fixed for the process's whole lifetime,
     # unaffected by restarts (a restart rebuilds the game itself, not how
-    # it's launched) -- mapper/board_size, in particular, come from a
-    # one-time board read purely to size things, independent of whichever
-    # TextBoard instance actually ends up played on in a given game.
+    # it's launched) -- board_size, in particular, comes from a one-time
+    # board read purely to size things, independent of whichever TextBoard
+    # instance actually ends up played on in a given game.
     probe_board = _load_board(args.board)
     native_shape = Img().read(BOARD_PATH).img.shape
     native_height_px, native_width_px = native_shape[0], native_shape[1]
@@ -173,10 +45,22 @@ def main():
         native_width_px, native_height_px, probe_board.num_cols, probe_board.num_rows
     ).cell_size
     cell_size = _resolve_cell_size(args, default_cell_size)
-
-    mapper = BoardMapper(cell_size)
     board_size = (cell_size * probe_board.num_cols, cell_size * probe_board.num_rows)
     asset_loader = AssetLoader(PIECES_ROOT)  # sprite cache: reused across restarts
+
+    # Two different mappers for two different layouts sharing one cell_size:
+    # two-player mode's two halves each draw their own board starting at
+    # local (0, 0) (unchanged from before this task -- see _run_two_player),
+    # while single-player mode now draws the board offset within a wider
+    # canvas that also has side panels (see GraphicsBoardRenderer's
+    # show_side_panels and render_player_panel) -- its mapper must agree,
+    # per BoardMapper's own docstring on x_offset/y_offset.
+    two_player_mapper = BoardMapper(cell_size)
+    single_player_mapper = BoardMapper(
+        cell_size,
+        x_offset=2 * BOARD_MARGIN_PX + SIDE_PANEL_WIDTH_PX,
+        y_offset=BOARD_MARGIN_PX,
+    )
 
     pending_clicks = []
 
@@ -189,65 +73,12 @@ def main():
 
     screen = Img()
 
-    quit_requested = False
-    while not quit_requested:
-        # Every per-game object is rebuilt fresh here, for the first game
-        # and every restart alike -- see _new_game's own docstring for why
-        # GameEngine specifically can't just be reused. renderer is rebuilt
-        # too (fresh _piece_views, so no stale PieceView/animation state
-        # carries over) but asset_loader/mapper aren't: neither holds any
-        # per-game state, just already-loaded sprites and fixed geometry.
-        engine, state = _new_game(args, mapper)
-        renderer = GraphicsBoardRenderer(
-            asset_loader, mapper, board_size=board_size, show_history_panel=True
+    if args.two_player:
+        _run_two_player(args, two_player_mapper, board_size, asset_loader, screen, pending_clicks)
+    else:
+        _run_single_player(
+            args, single_player_mapper, board_size, asset_loader, screen, pending_clicks
         )
-        score_tracker = ScoreTracker()
-        history_tracker = MoveHistoryTracker()
-        game_over_animation = GameOverAnimation()
-
-        restart_requested = False
-        last_time = time.time()
-
-        while not restart_requested and not quit_requested:
-            now = time.time()
-            elapsed_ms = int((now - last_time) * 1000)
-            last_time = now
-
-            engine.tick(state, elapsed_ms)
-
-            for x, y in pending_clicks:
-                engine.handle_click(state, x, y)
-            pending_clicks.clear()
-
-            snapshot = GameSnapshot.from_state(state)
-            score_tracker.update(snapshot)
-            history_tracker.update(snapshot)
-            game_over_animation.sync(snapshot)
-
-            renderer.render(snapshot, screen, selected=engine.selection)
-            renderer.render_scores(
-                screen,
-                score_tracker.get_score(Color.WHITE),
-                score_tracker.get_score(Color.BLACK),
-            )
-            renderer.render_move_history(screen, history_tracker.moves)
-            renderer.render_game_over(
-                screen, snapshot.winner, game_over_animation.progress()
-            )
-
-            # Img.show() blocks on cv2.waitKey(0) and tears the window down
-            # right after — incompatible with a continuous render loop, so
-            # this polls cv2 directly instead, same as the rest of this
-            # pipeline.
-            cv2.imshow(WINDOW_NAME, screen.img)
-            key = cv2.waitKey(30)
-
-            if key == ESC:
-                quit_requested = True
-            elif snapshot.game_over and key in (ord("q"), ord("Q")):
-                quit_requested = True
-            elif snapshot.game_over and key in (ord("r"), ord("R")):
-                restart_requested = True
 
     cv2.destroyAllWindows()
 

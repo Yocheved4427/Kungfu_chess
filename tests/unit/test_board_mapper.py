@@ -117,3 +117,46 @@ class TestFromBoardPixels:
             board_width_px=800, board_height_px=800, num_cols=8, num_rows=8
         )
         assert mapper.pixel_to_cell(350, 50) == Position(row=0, col=3)
+
+
+class TestPixelOffset:
+    """x_offset/y_offset: where the board's own (0, 0) cell starts within
+    a larger canvas -- added for GraphicsBoardRenderer's show_side_panels
+    layout, where the board is no longer drawn starting at the canvas's
+    own origin (see that class's and render_player_panel's docstrings)."""
+
+    def test_defaults_to_zero_unchanged_from_before_offsets_existed(self):
+        mapper = BoardMapper(100)
+        assert mapper.cell_to_pixel(0, 0) == (0, 0)
+        assert mapper.pixel_to_cell(0, 0) == Position(0, 0)
+
+    def test_cell_to_pixel_shifts_by_the_offset(self):
+        mapper = BoardMapper(100, x_offset=50, y_offset=30)
+        assert mapper.cell_to_pixel(0, 0) == (50, 30)
+        assert mapper.cell_to_pixel(row=1, col=2) == (250, 130)
+
+    def test_pixel_to_cell_shifts_by_the_offset(self):
+        mapper = BoardMapper(100, x_offset=50, y_offset=30)
+        assert mapper.pixel_to_cell(50, 30) == Position(0, 0)
+        assert mapper.pixel_to_cell(60, 40) == Position(0, 0)  # still inside the cell
+        assert mapper.pixel_to_cell(150, 30) == Position(0, 1)
+
+    def test_round_trip_holds_with_an_offset(self):
+        mapper = BoardMapper(100, x_offset=50, y_offset=30)
+        for row, col in [(0, 0), (2, 5), (7, 7)]:
+            x, y = mapper.cell_to_pixel(row, col)
+            assert mapper.pixel_to_cell(x, y) == Position(row, col)
+
+    def test_a_click_before_the_offset_maps_out_of_bounds(self):
+        """A click landing in the margin/panel region reserved before
+        the board starts must map to a cell no real board contains --
+        AbstractBoard.contains() rejects a negative row/col."""
+        mapper = BoardMapper(100, x_offset=50, y_offset=30)
+        pos = mapper.pixel_to_cell(10, 10)
+        assert pos.row < 0 or pos.col < 0
+
+    def test_x_offset_and_y_offset_are_independent(self):
+        mapper = BoardMapper(100, x_offset=50, y_offset=0)
+        assert mapper.cell_to_pixel(0, 0) == (50, 0)
+        mapper2 = BoardMapper(100, x_offset=0, y_offset=30)
+        assert mapper2.cell_to_pixel(0, 0) == (0, 30)
