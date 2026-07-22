@@ -374,6 +374,83 @@ class TestFriendlyMidRouteBlock:
 
 
 # ===========================================================================
+# Checkpoint timing granularity: cases the OLD single-checkpoint system
+# (one check at a move's whole arrival_time) could not express at all —
+# GameEngine now resolves each intermediate cell of a multi-cell move at
+# that cell's OWN due time (see PendingMove.checkpoints /
+# GameEngine._resolve_checkpoint), not just once at the very end.
+# ===========================================================================
+
+class TestCheckpointTimingGranularity:
+    def test_mid_path_block_resolves_at_its_own_checkpoint_not_at_the_final_arrival_time(self):
+        """wR (0,0)->(0,3) is a 3-cell move (move_duration=1000): its
+        checkpoint for (0,2) is due at t=2000, well before its own
+        overall arrival_time of t=3000. A second wR queues a 1-cell move
+        onto (0,2), arriving at t=1000 — squarely in the first rook's
+        path, well before that checkpoint.
+
+        Ticking to EXACTLY t=2000 (not all the way to 3000) must already
+        show the first rook stopped at (0,1): the old single-checkpoint
+        system never resolved anything for a pending move before its own
+        whole arrival_time, so under the old code this same tick(2000)
+        would leave the first rook still fully pending, untouched, at
+        its origin — only the new per-checkpoint timing can resolve it
+        this early.
+        """
+        board = TextBoard(["wR . . .", ". . wR .", ". . . .", ". . . ."])
+        engine = GameEngine(board, cell_size=100, move_duration=1000)
+        state = GameState(board=board)
+        engine.handle_click(state, 0, 0)      # select first wR
+        engine.handle_click(state, 300, 0)    # queue wR -> (0,3): checkpoints at 1000/2000/3000
+        engine.handle_click(state, 250, 150)  # select second wR at (1,2)
+        engine.handle_click(state, 250, 0)    # queue wR -> (0,2), arrival = 1000
+
+        engine.tick(state, 2000)  # exactly the (0,2) checkpoint's own due time -- not 3000
+        assert state.board.get_piece_at(Position(0, 1)) == "wR"  # already stopped short
+        assert state.board.get_piece_at(Position(0, 2)) == "wR"  # the blocker
+        assert state.board.get_piece_at(Position(0, 3)) == "."   # never reached
+        assert state.pending == []  # already fully resolved, three ticks early
+
+    def test_a_blocker_gone_by_the_old_arrival_time_still_stops_the_move(self):
+        """A block the old single-checkpoint system would have MISSED
+        entirely, not just resolved late.
+
+        wR (0,0)->(0,3): same 1000/2000/3000 checkpoints as above. A
+        second wR lands on (0,2) at t=1000 (blocking), then immediately
+        queues its OWN move straight back off (0,2) to (1,2), arriving
+        at t=2500 — after the first rook's (0,2) checkpoint (t=2000) but
+        before its old-style single arrival_time (t=3000). By t=3000,
+        (0,2) is empty again.
+
+        The OLD system, which only ever checked once, at t=3000, would
+        have found the path clear at that moment and let the first rook
+        sail through to (0,3) untouched. The new system, having already
+        locked in the block at the first rook's OWN checkpoint moment
+        (t=2000, while the second rook was still there), stops it at
+        (0,1) regardless of what the second rook does afterward.
+        """
+        board = TextBoard(["wR . . .", ". . wR .", ". . . .", ". . . ."])
+        engine = GameEngine(board, cell_size=100, move_duration=1000, cooldown_duration=0)
+        state = GameState(board=board)
+        engine.handle_click(state, 0, 0)      # select first wR
+        engine.handle_click(state, 300, 0)    # queue wR -> (0,3)
+        engine.handle_click(state, 250, 150)  # select second wR at (1,2)
+        engine.handle_click(state, 250, 0)    # queue wR -> (0,2), arrival = 1000
+
+        engine.tick(state, 1000)  # second wR lands on (0,2), now blocking
+        engine.tick(state, 500)   # advance to t=1500 -- nothing else due yet
+
+        engine.handle_click(state, 250, 0)    # select second wR, now sitting at (0,2)
+        engine.handle_click(state, 250, 150)  # queue it straight back to (1,2), arrival = 2500
+
+        engine.tick(state, 1500)  # advance from 1500 to 3000 in one jump
+        assert state.board.get_piece_at(Position(0, 1)) == "wR"  # first rook, stopped short
+        assert state.board.get_piece_at(Position(0, 2)) == "."   # blocker already left
+        assert state.board.get_piece_at(Position(0, 3)) == "."   # never reached
+        assert state.board.get_piece_at(Position(1, 2)) == "wR"  # blocker's new position
+
+
+# ===========================================================================
 # Movement conflicts: due moves resolve in arrival-time order, not queue order
 # ===========================================================================
 #

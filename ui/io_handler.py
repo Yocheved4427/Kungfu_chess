@@ -8,6 +8,7 @@ from engine.game import GameEngine
 from engine.game_state import GameState
 from input.board_parser import BoardParser
 from ui.events import GameEvent, Observer, RenderEvent
+from ui.observers import GameLifecycleObserver, SoundTriggerObserver
 
 # ---------------------------------------------------------------------------
 # Kung Fu Chess – UI I/O Handler
@@ -83,6 +84,8 @@ class ChessIOHandler(Observer):
         self._validator.validate(board.get_rows())
         engine = self._engine_factory(board)
         engine.add_observer(self)
+        engine.add_observer(SoundTriggerObserver())
+        engine.add_observer(GameLifecycleObserver())
         state = GameState(board=board)
         self._execute_commands(engine, state, command_lines)
 
