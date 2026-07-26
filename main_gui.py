@@ -16,13 +16,15 @@ from asset_loader import AssetLoader
 from graphics_board_renderer import BOARD_MARGIN_PX, SIDE_PANEL_WIDTH_PX
 from img import Img
 
+from core.models import Color
 from dashboard_view import run_dashboard_screen
 from input.board_mapper import BoardMapper
 from logger_config import setup_logging
 from login_view import run_login_screen
+from network_client import NetworkClient
 from ui.cli import _parse_args, _resolve_cell_size
 from ui.game_factory import _load_board
-from ui.game_loop import WINDOW_NAME, _run_single_player, _run_two_player
+from ui.game_loop import WINDOW_NAME, _run_network_player, _run_single_player, _run_two_player
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +62,26 @@ def main():
     setup_logging()
     args = _parse_args()
 
+    # Network mode (--username): connect to a running server/server.py
+    # instance as one player over WebSocket instead of any local game --
+    # entirely separate from the login+dashboard gate below, which is
+    # for LOCAL accounts (server/database.py) that have nothing to do
+    # with server/server.py's own, unrelated username-only login (see
+    # ui/cli.py's own --username help text). --board/--two-player are
+    # ignored in this mode -- see _run_network_player's own docstring.
+    network_client = None
+    my_color = None
+    if args.username:
+        network_client = NetworkClient(args.host, args.port, args.username)
+        color = network_client.connect(timeout=8.0)
+        if color is None:
+            for err in network_client.pop_errors():
+                logger.error("Could not log in to %s:%d -- %s", args.host, args.port, err)
+            print(f"Could not connect/log in to ws://{args.host}:{args.port} -- see the log above.")
+            return
+        my_color = Color.WHITE if color == "white" else Color.BLACK
+        logger.info("Connected to %s:%d as %r (%s)", args.host, args.port, args.username, color)
+
     # Login + dashboard gate: the game itself (GameEngine, AssetLoader,
     # the board window) is only ever initialized below this point, and
     # only once every required player has logged in AND confirmed
@@ -70,8 +92,9 @@ def main():
     # Black); Black is barred from logging in as the same account White
     # just used (exclude_user_id) so game_history's white_player_id/
     # black_player_id can never both point at one user. Cancelling any
-    # login or dashboard (Esc) aborts startup entirely.
-    if args.two_player:
+    # login or dashboard (Esc) aborts startup entirely. None of this
+    # runs in network mode -- see above.
+    elif args.two_player:
         white_user = _login_and_confirm(prompt="White: log in or register")
         if white_user is None:
             logger.info("Login cancelled -- exiting")
@@ -133,7 +156,12 @@ def main():
 
     screen = Img()
 
-    if args.two_player:
+    if network_client is not None:
+        _run_network_player(
+            args, two_player_mapper, board_size, asset_loader, screen, pending_clicks,
+            network_client, my_color, args.username,
+        )
+    elif args.two_player:
         _run_two_player(
             args, two_player_mapper, board_size, asset_loader, screen, pending_clicks,
             white_username=white_user["username"], black_username=black_user["username"],

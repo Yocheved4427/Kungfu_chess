@@ -4,6 +4,7 @@ import argparse
 import time
 
 import cv2
+import numpy as np
 
 from asset_loader import AssetLoader
 from game_over_animation import GameOverAnimation
@@ -12,16 +13,23 @@ from img import Img
 
 from controllers.click_controller import ClickController
 from core.models import Color, Position
+from engine.board import AbstractBoard, TextBoard
 from engine.game import GameEngine
 from engine.game_state import GameState
 from engine.move_history_tracker import MoveHistoryTracker
 from engine.score_tracker import ScoreTracker
-from engine.snapshot import GameSnapshot
+from engine.snapshot import BoardSnapshot, GameSnapshot
 from input.board_mapper import BoardMapper
+from network_client import NetworkClient
 from ui.game_factory import _new_game
 
 WINDOW_NAME = "Kung Fu Chess"
 ESC = 27
+
+# BGRA background for the network-mode "waiting for the game to start"
+# placeholder frame, and the HUD text drawn over the real board once a
+# snapshot has arrived -- see _run_network_player.
+NETWORK_WAITING_BGRA = (30, 30, 30, 255)
 
 
 class _OwnColorClickController:
@@ -294,3 +302,179 @@ def _run_two_player(
                 quit_requested = True
             elif snapshot.game_over and key in (ord("r"), ord("R")):
                 restart_requested = True
+
+
+class _NetworkClickController:
+    """Click handling for main_gui.py's networked mode (see
+    ``_run_network_player``) — tracks a LOCAL ``selection`` only (a pure
+    UI/interaction concern, same principle ``GameEngine``'s own
+    ``selection`` property is built on) and, on a completed selection,
+    sends the move to the server instead of ever mutating a local board.
+
+    There is no local ``GameEngine`` in this mode at all — the server is
+    the sole legality authority (see network_client.py's own header and
+    this feature's own brief: "the client must rely entirely on the
+    server's GameEngine"). Same two-step "click a piece, click a
+    destination" shape as ``ClickController``'s own selection state
+    machine, and the same same-colour-switches-selection /
+    anything-else-attempts-a-move rule — just against a plain
+    ``AbstractBoard`` read from the latest snapshot, with no
+    ``is_selectable``/busy check available (the server enforces that;
+    a click on a busy piece here just becomes a move attempt the server
+    will reject with an ``error``, per this feature's own spec).
+    """
+
+    def __init__(self, mapper: BoardMapper, own_color: Color) -> None:
+        self._mapper = mapper
+        self._own_color = own_color
+        self.selection: Position | None = None
+
+    def handle_click(self, board: AbstractBoard, x: int, y: int, network_client: NetworkClient) -> None:
+        pos = self._mapper.pixel_to_cell(x, y)
+        if not board.contains(pos):
+            return
+
+        piece = board.get_piece_at(pos)
+        is_own_piece = piece is not None and piece != "." and piece[0] == self._own_color.value
+
+        if self.selection is None:
+            if is_own_piece:
+                self.selection = pos
+            return
+
+        if pos == self.selection:
+            self.selection = None  # click the same cell again -- deselect
+            return
+
+        if is_own_piece:
+            self.selection = pos  # switch to the other own piece
+            return
+
+        network_client.send_move(self.selection, pos)
+        self.selection = None
+
+
+def _draw_network_hud(
+    screen: Img,
+    username: str,
+    my_color: Color,
+    connected: bool,
+    error_message: str,
+) -> None:
+    """Draw the small HUD network mode needs on top of whatever's
+    already on *screen*: the logged-in player's own username/colour,
+    a connection-status indicator, and the most recent error (if any
+    is still within its display window — see ``_run_network_player``).
+    """
+    color_label = "White" if my_color is Color.WHITE else "Black"
+    screen.put_text(f"You: {username} ({color_label})", 10, 20, font_size=0.5, color=(255, 255, 255, 255))
+
+    status_text = "Connected" if connected else "Disconnected"
+    status_color = (0, 200, 0, 255) if connected else (0, 0, 220, 255)
+    width = screen.img.shape[1]
+    screen.put_text(status_text, width - 130, 20, font_size=0.5, color=status_color)
+
+    if error_message:
+        screen.put_text(error_message, 10, screen.img.shape[0] - 15, font_size=0.5, color=(0, 0, 220, 255))
+
+
+def _run_network_player(
+    args: argparse.Namespace,
+    mapper: BoardMapper,
+    board_size: "tuple[int, int]",
+    asset_loader: AssetLoader,
+    screen: Img,
+    pending_clicks: list,
+    network_client: NetworkClient,
+    my_color: Color,
+    username: str,
+) -> None:
+    """The networked game loop: no local ``GameEngine``/``GameState`` at
+    all — every bit of board truth comes from *network_client*'s most
+    recently received "snapshot" message (see network_client.py's own
+    header for exactly what that does and doesn't carry).
+
+    Renders via the same ``GraphicsBoardRenderer``/``Img`` pipeline as
+    local mode, but the bare board only (``show_side_panels``/
+    ``show_history_panel`` both left at their default False) — no
+    score or move-history tracking here: both of this codebase's
+    trackers (``ScoreTracker``, ``MoveHistoryTracker``) diff
+    ``GameSnapshot.pending``/``.airborne`` between frames to detect
+    what happened, and the wire protocol's "snapshot" carries neither
+    (see network_client.py's header) — running them against an always-
+    empty ``pending``/``airborne`` would silently under-count captures
+    rather than genuinely track them, so they're left out entirely
+    instead of shipping a subtly-wrong approximation.
+
+    Clicks are handled by ``_NetworkClickController``, which only
+    tracks a local ``selection`` and sends a move to the server — the
+    board redraws next frame from whatever snapshot the server has
+    broadcast by then, which may not yet reflect a just-sent move (real
+    network latency, plus this engine's own queued/real-time move
+    timing — see ``GameEngine.attempt_move``'s docstring: even
+    server-side, a queued move doesn't land instantly).
+
+    Restart (R) is a no-op here — the server owns the one shared game;
+    a client unilaterally restarting it isn't something this protocol
+    supports yet (a later, server-side "Rooms"/rematch task, not this
+    one). Q and Esc both disconnect (``network_client.close()``) and
+    return.
+    """
+    renderer = GraphicsBoardRenderer(asset_loader, mapper, board_size=board_size)
+    click_controller = _NetworkClickController(mapper, my_color)
+    game_over_animation = GameOverAnimation()
+
+    error_message = ""
+    error_expires_at = 0.0
+
+    quit_requested = False
+    while not quit_requested:
+        snapshot_dict = network_client.get_latest_snapshot()
+
+        for err in network_client.pop_errors():
+            error_message = err
+            error_expires_at = time.time() + 4.0
+        network_client.pop_events()  # not yet consumed by anything in this mode
+
+        if snapshot_dict is not None:
+            board = TextBoard(snapshot_dict["board"])
+
+            for x, y in pending_clicks:
+                click_controller.handle_click(board, x, y, network_client)
+            pending_clicks.clear()
+
+            winner_raw = snapshot_dict.get("winner")
+            game_snapshot = GameSnapshot(
+                board=BoardSnapshot.from_board(board),
+                current_time=snapshot_dict["current_time"],
+                game_over=snapshot_dict["game_over"],
+                winner=Color(winner_raw) if winner_raw is not None else None,
+                pending=(),
+                airborne=(),
+            )
+            renderer.render(game_snapshot, screen, selected=click_controller.selection)
+            game_over_animation.sync(game_snapshot)
+            renderer.render_game_over(screen, game_snapshot.winner, game_over_animation.progress())
+        else:
+            pending_clicks.clear()  # nothing to click on until the game starts
+            screen.img = np.full((board_size[1], board_size[0], 4), NETWORK_WAITING_BGRA, dtype=np.uint8)
+            screen.put_text(
+                "Waiting for the game to start...",
+                20, board_size[1] // 2, font_size=0.6, color=(255, 255, 255, 255),
+            )
+
+        if error_message and time.time() >= error_expires_at:
+            error_message = ""
+        _draw_network_hud(screen, username, my_color, network_client.is_connected(), error_message)
+
+        # Img.show() blocks on cv2.waitKey(0) and tears the window down
+        # right after — incompatible with a continuous render loop, so
+        # this polls cv2 directly instead, same as the rest of this
+        # pipeline.
+        cv2.imshow(WINDOW_NAME, screen.img)
+        key = cv2.waitKey(30)
+
+        if key == ESC or key in (ord("q"), ord("Q")):
+            quit_requested = True
+
+    network_client.close()
