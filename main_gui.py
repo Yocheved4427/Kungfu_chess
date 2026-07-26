@@ -18,6 +18,7 @@ from img import Img
 
 from input.board_mapper import BoardMapper
 from logger_config import setup_logging
+from login_view import run_login_screen
 from ui.cli import _parse_args, _resolve_cell_size
 from ui.game_factory import _load_board
 from ui.game_loop import WINDOW_NAME, _run_single_player, _run_two_player
@@ -32,6 +33,38 @@ PIECES_ROOT = ASSETS_ROOT / "pieces3"
 def main():
     setup_logging()
     args = _parse_args()
+
+    # Login gate: the game itself (GameEngine, AssetLoader, the board
+    # window) is only ever initialized below this point, and only once
+    # every required login has actually succeeded -- see login_view.py's
+    # own module docstring for why this is a separate cv2 window rather
+    # than a second GUI toolkit. --two-player needs one login per side
+    # (White, then Black); Black is barred from logging in as the same
+    # account White just used (exclude_user_id) so game_history's
+    # white_player_id/black_player_id can never both point at one user.
+    # Cancelling any login (Esc) aborts startup entirely -- no game
+    # window is ever opened.
+    if args.two_player:
+        white_user = run_login_screen(prompt="White: log in or register")
+        if white_user is None:
+            logger.info("Login cancelled -- exiting")
+            return
+        black_user = run_login_screen(
+            prompt="Black: log in or register", exclude_user_id=white_user["user_id"]
+        )
+        if black_user is None:
+            logger.info("Login cancelled -- exiting")
+            return
+        logger.info(
+            "Starting two-player game: white=%r black=%r",
+            white_user["username"], black_user["username"],
+        )
+    else:
+        player_user = run_login_screen(prompt="Log in or register to play")
+        if player_user is None:
+            logger.info("Login cancelled -- exiting")
+            return
+        logger.info("Starting single-player session for %r", player_user["username"])
 
     # Launch-config-derived setup: fixed for the process's whole lifetime,
     # unaffected by restarts (a restart rebuilds the game itself, not how
