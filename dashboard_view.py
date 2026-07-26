@@ -18,7 +18,7 @@ import numpy as np
 
 from img import Img
 
-from server.database import DEFAULT_DB_PATH, UserRepository, get_player_stats
+from server.database.sqlite_db_manager import DEFAULT_DB_PATH, UserRepository, get_player_stats
 
 # ---------------------------------------------------------------------------
 # Kung Fu Chess – User Dashboard / Lobby screen
@@ -36,12 +36,13 @@ from server.database import DEFAULT_DB_PATH, UserRepository, get_player_stats
 # mode (see main_gui.py) without leaking a window.
 #
 # NOTE: games_played/wins/losses/draws are read from game_history via
-# server.database.get_player_stats -- nothing in this codebase calls
-# save_game_result() yet when a game actually ends (that's a separate,
-# not-yet-built piece of wiring in ui/game_loop.py), so these will read
-# as all-zero for every player until that exists. ELO, by contrast, is
-# already meaningful today (every account starts at 1200 and update_elo
-# is fully wired in server/database.py, just not yet called from
+# server.database.sqlite_db_manager.get_player_stats -- nothing in this
+# codebase calls save_game_result() yet when a game actually ends
+# (that's a separate, not-yet-built piece of wiring in ui/game_loop.py),
+# so these will read as all-zero for every player until that exists.
+# ELO, by contrast, is already meaningful today (every account starts at
+# 1200 and update_elo is fully wired in
+# server/database/sqlite_db_manager.py, just not yet called from
 # anywhere) -- see get_player_stats' own docstring.
 # ---------------------------------------------------------------------------
 

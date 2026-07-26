@@ -1,13 +1,13 @@
 """
-Unit tests for server/database.py
+Unit tests for server/database/sqlite_db_manager.py
 
 Scope: UserRepository, GameHistoryRepository, and the module-level
 function-style API (register_user/authenticate_user/save_game_result/
 update_elo/get_player_stats) — schema init, bcrypt password hashing,
 authentication, duplicate-username rejection, and game-history logging.
 
-NOT ":memory:" — every public method in server/database.py opens its
-OWN short-lived connection per call (see that module's own header for
+NOT ":memory:" — every public method in server/database/sqlite_db_manager.py
+opens its OWN short-lived connection per call (see that module's own header for
 why), and SQLite's ":memory:" database is private to the single
 connection that created it: a second call reusing the same ":memory:"
 path opens a BRAND NEW, empty database, not the same one. Confirmed
@@ -27,7 +27,7 @@ import sqlite3
 import bcrypt
 import pytest
 
-from server.database import (
+from server.database.sqlite_db_manager import (
     GameHistoryRepository,
     GameRecord,
     UserNotFoundError,
@@ -62,7 +62,7 @@ class TestInitDb:
         init_db(path)
         # NOT `with sqlite3.connect(path) as conn:` -- that commits/rolls
         # back but does NOT close the connection (the exact gotcha
-        # server.database._connection's own docstring warns about), so
+        # server.database.sqlite_db_manager._connection's own docstring warns about), so
         # this closes it explicitly instead.
         conn = sqlite3.connect(path)
         try:
