@@ -49,6 +49,33 @@ def _parse_args() -> argparse.Namespace:
             "mode (the default) is unchanged."
         ),
     )
+    parser.add_argument(
+        "--username",
+        default=None,
+        help=(
+            "Connect to a running server/server.py WebSocket server as "
+            "this username instead of launching a local game -- see "
+            "network_client.py/ui.game_loop._run_network_player. Skips "
+            "the local login_view.py/dashboard_view.py screens entirely "
+            "(server/server.py's login is username-only, unrelated to "
+            "the local database.py accounts those use). --board/"
+            "--two-player are ignored in this mode: the board comes from "
+            "the server, and each --username invocation is one player --"
+            "run it twice (see main_gui.py's own module docstring) for "
+            "two players."
+        ),
+    )
+    parser.add_argument(
+        "--host",
+        default="localhost",
+        help="Server hostname for --username's network mode. Default: localhost.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="Server port for --username's network mode. Default: 8765 (server/server.py's own default).",
+    )
     return parser.parse_args()
 
 
