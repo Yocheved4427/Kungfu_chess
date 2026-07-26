@@ -9,6 +9,7 @@ from shared.models.cell import Cell
 from core.models import MoveCheckpoint, PendingJump, PendingMove, same_color
 from shared.models.board import AbstractBoard
 from engine.board_renderer import BoardRenderer, TextBoardRenderer
+from engine.cooldown import is_resting, start_cooldown
 from engine.game_over import GameOverRule, KingCaptureRule
 from engine.game_state import GameState
 from engine.promotion import is_promotion, promoted_piece
@@ -666,8 +667,7 @@ class GameEngine:
         or a jump lands on *pos* — see ``_set_cooldown``. Expires on its
         own once ``current_time`` passes the stored expiry; no explicit
         cleanup is needed."""
-        expiry = state.cooldowns.get(pos)
-        return expiry is not None and expiry > state.current_time
+        return is_resting(state.cooldowns, pos, state.current_time)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -686,7 +686,7 @@ class GameEngine:
 
     def _set_cooldown(self, state: GameState, pos: Cell) -> None:
         """Start (or restart) *pos*'s cooldown window in *state* from the current time."""
-        state.cooldowns[pos] = state.current_time + self._cooldown_duration
+        start_cooldown(state.cooldowns, pos, state.current_time, self._cooldown_duration)
 
     def _airborne_at(self, state: GameState, pos: Cell) -> PendingJump | None:
         """Return the active ``PendingJump`` at *pos* in *state*, if any."""

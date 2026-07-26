@@ -5,6 +5,7 @@ from typing import Dict, List, Optional
 
 from shared.models.board import AbstractBoard
 from shared.models.cell import Cell
+from engine.cooldown import is_resting
 from engine.rule_engine import MoveResult
 from engine.rule_engine import RuleEngine as _EnginePieceBoardRuleEngine
 from server.game.rules.piece_rules import calculate_trajectories
@@ -34,13 +35,28 @@ from server.game.rules.piece_rules import calculate_trajectories
 
 class MoveLegality(Enum):
     """Outcome of ``RuleEngine.validate_move`` below — a superset of
-    ``engine.rule_engine.MoveResult`` that adds the one reason a move
-    can be rejected that engine.rule_engine.RuleEngine has no way to
-    know about: the piece hasn't finished cooling down yet.
+    ``engine.rule_engine.MoveResult`` that adds the real-time-only
+    rejection reasons ``engine.rule_engine.RuleEngine`` has no way to
+    know about (it only ever reads current board content — see its own
+    module docstring):
 
-    Every member other than ``PIECE_COOLING_DOWN`` corresponds 1:1
-    (same name) to an ``engine.rule_engine.MoveResult`` member — see
-    ``_from_move_result``.
+    * ``PIECE_COOLING_DOWN`` — the mover hasn't finished cooling down
+      from its last landing yet.
+    * ``ROUTE_CONFLICT`` — this move's lane overlaps an opposite-colour
+      piece already in transit along the same lane (see
+      ``GameEngine.attempt_move``'s own route-lock check,
+      ``_route_conflicts``) — never produced by this class's own
+      ``validate_move``, only by ``real_time_arbiter.RealTimeArbiter``,
+      which is the caller actually in a position to know about other
+      pieces currently in flight.
+    * ``GAME_OVER`` — mirrors ``engine.rule_engine.MoveResult.GAME_OVER``
+      (also never produced by this class's own ``validate_move``, for
+      the same reason: it reads board content, not ``GameState.
+      game_over`` — only a caller holding the full ``GameState``, i.e.
+      ``RealTimeArbiter``, can know a game has already ended).
+
+    Every other member corresponds 1:1 (same name) to an
+    ``engine.rule_engine.MoveResult`` member — see ``_from_move_result``.
     """
     OK = auto()
     OUTSIDE_BOARD = auto()
@@ -51,6 +67,8 @@ class MoveLegality(Enum):
     FRIENDLY_FIRE = auto()
     BLOCKED_PATH = auto()
     PIECE_COOLING_DOWN = auto()
+    ROUTE_CONFLICT = auto()
+    GAME_OVER = auto()
 
     @property
     def is_ok(self) -> bool:
@@ -131,5 +149,4 @@ class RuleEngine:
     def _is_cooling_down(
         cell: Cell, current_time_ms: int, cooldowns: Dict[Cell, int]
     ) -> bool:
-        expiry = cooldowns.get(cell)
-        return expiry is not None and expiry > current_time_ms
+        return is_resting(cooldowns, cell, current_time_ms)
