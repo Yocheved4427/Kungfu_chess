@@ -65,7 +65,7 @@ def main():
     # Network mode (--username): connect to a running server/server.py
     # instance as one player over WebSocket instead of any local game --
     # entirely separate from the login+dashboard gate below, which is
-    # for LOCAL accounts (server/database.py) that have nothing to do
+    # for LOCAL accounts (server/database/sqlite_db_manager.py) that have nothing to do
     # with server/server.py's own, unrelated username-only login (see
     # ui/cli.py's own --username help text). --board/--two-player are
     # ignored in this mode -- see _run_network_player's own docstring.

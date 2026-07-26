@@ -18,7 +18,12 @@ import numpy as np
 
 from img import Img
 
-from server.database import DEFAULT_DB_PATH, authenticate_user, init_db, register_user
+from server.database.sqlite_db_manager import (
+    DEFAULT_DB_PATH,
+    authenticate_user,
+    init_db,
+    register_user,
+)
 
 # ---------------------------------------------------------------------------
 # Kung Fu Chess – Login / Registration screen
@@ -108,7 +113,7 @@ def run_login_screen(
     black_player_id to the very same user).
 
     Returns the authenticated user's profile dict (see
-    ``server.database.authenticate_user``) on success, or ``None`` if
+    ``server.database.sqlite_db_manager.authenticate_user``) on success, or ``None`` if
     the player closed the window (Esc) instead — the caller is expected
     to abort startup entirely in that case.
     """
