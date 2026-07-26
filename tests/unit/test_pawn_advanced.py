@@ -14,8 +14,9 @@ only GameEngine performs (via AbstractBoard.set_piece_at).
 
 from __future__ import annotations
 
-from core.models import Color, Position
-from engine.board import TextBoard
+from shared.models.color import Color
+from shared.models.cell import Cell
+from shared.models.board import TextBoard
 from engine.game import GameEngine
 from engine.game_state import GameState
 
@@ -36,8 +37,8 @@ class TestTwoStepAdvanceViaEngine:
         engine.handle_click(state, 0, 100)  # two-step to (1,0)
         assert len(state.pending) == 1
         engine.tick(state, 1000)  # Chebyshev distance 2 * 500ms
-        assert state.board.get_piece_at(Position(1, 0)) == "wP"
-        assert state.board.get_piece_at(Position(3, 0)) == "."
+        assert state.board.get_piece_at(Cell(1, 0)) == "wP"
+        assert state.board.get_piece_at(Cell(3, 0)) == "."
 
     def test_black_two_step_from_start_row_is_queued_and_executes(self):
         # 5 rows: Black's start row is always 1; lands on row 3, which is
@@ -48,7 +49,7 @@ class TestTwoStepAdvanceViaEngine:
         engine.handle_click(state, 0, 100)  # select bP at (1,0)
         engine.handle_click(state, 0, 300)  # two-step to (3,0)
         engine.tick(state, 1000)
-        assert state.board.get_piece_at(Position(3, 0)) == "bP"
+        assert state.board.get_piece_at(Cell(3, 0)) == "bP"
 
     def test_two_step_off_start_row_is_not_queued(self):
         # 4 rows: White's start row = 2; pawn sits at 3 (the back rank), one off it.
@@ -81,9 +82,9 @@ class TestTwoStepAdvanceViaEngine:
         engine.handle_click(state, 100, 100)  # select bK at (1,1)
         engine.handle_click(state, 0, 100)    # queue bK -> (1,0), 1 cell, arrives first
         engine.tick(state, 1000)
-        assert state.board.get_piece_at(Position(2, 0)) == "wP"  # never moved
-        assert state.board.get_piece_at(Position(1, 0)) == "bK"
-        assert state.board.get_piece_at(Position(0, 0)) == "."
+        assert state.board.get_piece_at(Cell(2, 0)) == "wP"  # never moved
+        assert state.board.get_piece_at(Cell(1, 0)) == "bK"
+        assert state.board.get_piece_at(Cell(0, 0)) == "."
 
     def test_one_step_move_still_works_after_two_step_feature_added(self):
         # wP moves from the bottom row to the middle row — not the back
@@ -94,7 +95,7 @@ class TestTwoStepAdvanceViaEngine:
         engine.handle_click(state, 0, 200)  # select wP at (2,0)
         engine.handle_click(state, 0, 100)  # one-step to (1,0)
         engine.tick(state, 500)
-        assert state.board.get_piece_at(Position(1, 0)) == "wP"
+        assert state.board.get_piece_at(Cell(1, 0)) == "wP"
 
 
 # ===========================================================================
@@ -109,7 +110,7 @@ class TestPromotion:
         engine.handle_click(state, 0, 100)  # select wP at (1,0)
         engine.handle_click(state, 0, 0)    # forward to (0,0) — the back rank
         engine.tick(state, 500)
-        assert state.board.get_piece_at(Position(0, 0)) == "wQ"
+        assert state.board.get_piece_at(Cell(0, 0)) == "wQ"
 
     def test_black_pawn_reaching_last_row_promotes_to_queen(self):
         board = TextBoard(["bP .", ". ."])
@@ -118,7 +119,7 @@ class TestPromotion:
         engine.handle_click(state, 0, 0)    # select bP at (0,0)
         engine.handle_click(state, 0, 100)  # forward to (1,0) — the back rank
         engine.tick(state, 500)
-        assert state.board.get_piece_at(Position(1, 0)) == "bQ"
+        assert state.board.get_piece_at(Cell(1, 0)) == "bQ"
 
     def test_promotion_via_diagonal_capture(self):
         """Promotion applies regardless of how the pawn arrives — a
@@ -129,7 +130,7 @@ class TestPromotion:
         engine.handle_click(state, 0, 100)    # select wP at (1,0)
         engine.handle_click(state, 100, 0)    # diagonal capture bN at (0,1)
         engine.tick(state, 500)
-        assert state.board.get_piece_at(Position(0, 1)) == "wQ"
+        assert state.board.get_piece_at(Cell(0, 1)) == "wQ"
 
     def test_promoted_queen_moves_like_a_queen_once_cooldown_elapses(self):
         """Once the post-landing cooldown (see test_cooldown.py) elapses,
@@ -142,7 +143,7 @@ class TestPromotion:
         engine.handle_click(state, 0, 100)    # select wP at (1,0)
         engine.handle_click(state, 0, 0)      # forward to (0,0), promotes to wQ
         engine.tick(state, 500)               # lands + promotes; cooldown until 1500
-        assert state.board.get_piece_at(Position(0, 0)) == "wQ"
+        assert state.board.get_piece_at(Cell(0, 0)) == "wQ"
         engine.tick(state, 1000)              # clock = 1500, cooldown just elapsed
         engine.handle_click(state, 0, 0)      # select the new wQ
         engine.handle_click(state, 200, 200)  # long diagonal — legal for a Queen
@@ -156,7 +157,7 @@ class TestPromotion:
         engine.handle_click(state, 0, 200)  # select wP at (2,0)
         engine.handle_click(state, 0, 100)  # forward to (1,0) — not the back rank
         engine.tick(state, 500)
-        assert state.board.get_piece_at(Position(1, 0)) == "wP"
+        assert state.board.get_piece_at(Cell(1, 0)) == "wP"
 
     def test_non_pawn_reaching_last_row_is_not_promoted(self):
         board = TextBoard([". .", "wR ."])
@@ -165,7 +166,7 @@ class TestPromotion:
         engine.handle_click(state, 0, 100)  # select wR at (1,0)
         engine.handle_click(state, 0, 0)    # forward to (0,0)
         engine.tick(state, 500)
-        assert state.board.get_piece_at(Position(0, 0)) == "wR"
+        assert state.board.get_piece_at(Cell(0, 0)) == "wR"
 
     def test_promotion_fires_the_normal_move_completed_event_for_the_pawn(self):
         from ui.events import GameEvent, MoveCompletedEvent, Observer
@@ -188,7 +189,7 @@ class TestPromotion:
         completed = [e for e in obs.events if isinstance(e, MoveCompletedEvent)]
         assert len(completed) == 1
         assert completed[0].piece == "wP"  # event reports the pre-promotion piece
-        assert state.board.get_piece_at(Position(0, 0)) == "wQ"
+        assert state.board.get_piece_at(Cell(0, 0)) == "wQ"
 
 
 # ===========================================================================
@@ -214,7 +215,7 @@ class TestPromotionSkippedWhenTheCaptureEndsTheGame:
         engine.handle_click(state, 100, 100)  # select wP at (1,1)
         engine.handle_click(state, 0, 0)      # capture bK at (0,0)
         engine.tick(state, 500)
-        assert state.board.get_piece_at(Position(0, 0)) == "wP"
+        assert state.board.get_piece_at(Cell(0, 0)) == "wP"
         assert state.game_over is True
         assert state.winner is Color.WHITE
 
@@ -227,5 +228,5 @@ class TestPromotionSkippedWhenTheCaptureEndsTheGame:
         engine.handle_click(state, 0, 100)  # select wP at (1,0)
         engine.handle_click(state, 0, 0)    # forward to (0,0)
         engine.tick(state, 500)
-        assert state.board.get_piece_at(Position(0, 0)) == "wQ"
+        assert state.board.get_piece_at(Cell(0, 0)) == "wQ"
         assert state.game_over is False

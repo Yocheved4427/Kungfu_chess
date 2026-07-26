@@ -11,8 +11,8 @@ for a custom-renderer example).
 
 from __future__ import annotations
 
-from core.models import Position
-from engine.board import TextBoard
+from shared.models.cell import Cell
+from shared.models.board import TextBoard
 from engine.board_renderer import BoardRenderer, TextBoardRenderer
 
 _RANK_8 = "wR wN wB wQ wK wB wN wR"
@@ -45,5 +45,5 @@ class TestTextBoardRenderer:
         board = TextBoard(["wP ."])
         renderer = TextBoardRenderer()
         assert renderer.render(board) == "wP ."
-        board.set_piece_at(Position(0, 0), "wQ")
+        board.set_piece_at(Cell(0, 0), "wQ")
         assert renderer.render(board) == "wQ ."

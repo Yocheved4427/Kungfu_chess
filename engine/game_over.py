@@ -3,10 +3,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
-from core.models import Color, GameResult
+from shared.models.color import Color
+from core.models import GameResult
 
 if TYPE_CHECKING:
-    from engine.board import AbstractBoard
+    from shared.models.board import AbstractBoard
 
 # ---------------------------------------------------------------------------
 # Kung Fu Chess – Game-Over Rules  (Strategy Pattern / OCP)

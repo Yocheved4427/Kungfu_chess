@@ -10,8 +10,8 @@ from typing import List, Optional
 from websockets.asyncio.client import connect as ws_connect
 from websockets.exceptions import ConnectionClosed
 
-from core.models import Position
-from server.algebraic import position_to_algebraic
+from shared.models.cell import Cell
+from server.algebraic import cell_to_algebraic
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,7 @@ class NetworkClient:
                 self._pending_errors.append("Timed out waiting for the server.")
             return None
 
-    def send_move(self, from_pos: Position, to_pos: Position) -> None:
+    def send_move(self, from_pos: Cell, to_pos: Cell) -> None:
         """Queue a move message for the background loop to send.
 
         Never blocks, never mutates any local board state — the server
@@ -128,8 +128,8 @@ class NetworkClient:
         """
         message = {
             "type": "move",
-            "from": position_to_algebraic(from_pos),
-            "to": position_to_algebraic(to_pos),
+            "from": cell_to_algebraic(from_pos),
+            "to": cell_to_algebraic(to_pos),
         }
         if self._loop is not None and self._outbound is not None:
             self._loop.call_soon_threadsafe(self._outbound.put_nowait, message)

@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import pytest
 
-from core.models import Position
-from engine.board import TextBoard
+from shared.models.cell import Cell
+from shared.models.board import TextBoard
 from engine.rule_engine import (
     BishopRule,
     IPieceRule,
@@ -69,7 +69,7 @@ class TestMoveResult:
         never return it, no matter the board."""
         engine = RuleEngine()
         board = _b("wR . .")
-        result = engine.validate_move("wR", Position(0, 0), Position(0, 1), board)
+        result = engine.validate_move("wR", Cell(0, 0), Cell(0, 1), board)
         assert result != MoveResult.GAME_OVER
 
 
@@ -87,7 +87,7 @@ class TestIPieceRuleABC:
             def is_legal_move(self, piece, from_pos, to_pos, board) -> bool:
                 return True
 
-        assert _Minimal().requires_path_check(Position(0, 0), Position(0, 1)) is False
+        assert _Minimal().requires_path_check(Cell(0, 0), Cell(0, 1)) is False
 
 
 # ===========================================================================
@@ -100,19 +100,19 @@ class TestRookRule:
         self.board = _b("wR . . .")
 
     def test_horizontal_is_legal(self):
-        assert self.rule.is_legal_move("wR", Position(0, 0), Position(0, 3), self.board) is True
+        assert self.rule.is_legal_move("wR", Cell(0, 0), Cell(0, 3), self.board) is True
 
     def test_vertical_is_legal(self):
-        assert self.rule.is_legal_move("wR", Position(0, 0), Position(5, 0), self.board) is True
+        assert self.rule.is_legal_move("wR", Cell(0, 0), Cell(5, 0), self.board) is True
 
     def test_diagonal_is_illegal(self):
-        assert self.rule.is_legal_move("wR", Position(0, 0), Position(3, 3), self.board) is False
+        assert self.rule.is_legal_move("wR", Cell(0, 0), Cell(3, 3), self.board) is False
 
     def test_no_movement_is_illegal(self):
-        assert self.rule.is_legal_move("wR", Position(2, 2), Position(2, 2), self.board) is False
+        assert self.rule.is_legal_move("wR", Cell(2, 2), Cell(2, 2), self.board) is False
 
     def test_requires_path_check(self):
-        assert self.rule.requires_path_check(Position(0, 0), Position(0, 3)) is True
+        assert self.rule.requires_path_check(Cell(0, 0), Cell(0, 3)) is True
 
 
 # ===========================================================================
@@ -125,16 +125,16 @@ class TestBishopRule:
         self.board = _b("wB . . .")
 
     def test_diagonal_is_legal(self):
-        assert self.rule.is_legal_move("wB", Position(0, 0), Position(3, 3), self.board) is True
+        assert self.rule.is_legal_move("wB", Cell(0, 0), Cell(3, 3), self.board) is True
 
     def test_orthogonal_is_illegal(self):
-        assert self.rule.is_legal_move("wB", Position(0, 0), Position(0, 3), self.board) is False
+        assert self.rule.is_legal_move("wB", Cell(0, 0), Cell(0, 3), self.board) is False
 
     def test_uneven_diagonal_is_illegal(self):
-        assert self.rule.is_legal_move("wB", Position(0, 0), Position(1, 2), self.board) is False
+        assert self.rule.is_legal_move("wB", Cell(0, 0), Cell(1, 2), self.board) is False
 
     def test_requires_path_check(self):
-        assert self.rule.requires_path_check(Position(0, 0), Position(3, 3)) is True
+        assert self.rule.requires_path_check(Cell(0, 0), Cell(3, 3)) is True
 
 
 # ===========================================================================
@@ -147,16 +147,16 @@ class TestQueenRule:
         self.board = _b("wQ . . .")
 
     def test_orthogonal_is_legal(self):
-        assert self.rule.is_legal_move("wQ", Position(0, 0), Position(0, 3), self.board) is True
+        assert self.rule.is_legal_move("wQ", Cell(0, 0), Cell(0, 3), self.board) is True
 
     def test_diagonal_is_legal(self):
-        assert self.rule.is_legal_move("wQ", Position(0, 0), Position(2, 2), self.board) is True
+        assert self.rule.is_legal_move("wQ", Cell(0, 0), Cell(2, 2), self.board) is True
 
     def test_knight_shape_is_illegal(self):
-        assert self.rule.is_legal_move("wQ", Position(0, 0), Position(1, 2), self.board) is False
+        assert self.rule.is_legal_move("wQ", Cell(0, 0), Cell(1, 2), self.board) is False
 
     def test_requires_path_check(self):
-        assert self.rule.requires_path_check(Position(0, 0), Position(0, 3)) is True
+        assert self.rule.requires_path_check(Cell(0, 0), Cell(0, 3)) is True
 
 
 # ===========================================================================
@@ -171,14 +171,14 @@ class TestKnightRule:
     @pytest.mark.parametrize("dr,dc", [(1, 2), (2, 1), (-1, 2), (-2, -1), (1, -2), (-1, -2)])
     def test_l_shapes_are_legal(self, dr, dc):
         assert self.rule.is_legal_move(
-            "wN", Position(2, 2), Position(2 + dr, 2 + dc), self.board
+            "wN", Cell(2, 2), Cell(2 + dr, 2 + dc), self.board
         ) is True
 
     def test_straight_line_is_illegal(self):
-        assert self.rule.is_legal_move("wN", Position(2, 2), Position(2, 4), self.board) is False
+        assert self.rule.is_legal_move("wN", Cell(2, 2), Cell(2, 4), self.board) is False
 
     def test_does_not_require_path_check(self):
-        assert self.rule.requires_path_check(Position(2, 2), Position(0, 1)) is False
+        assert self.rule.requires_path_check(Cell(2, 2), Cell(0, 1)) is False
 
 
 # ===========================================================================
@@ -195,15 +195,15 @@ class TestKingRule:
     )
     def test_one_step_any_direction_is_legal(self, dr, dc):
         assert self.rule.is_legal_move(
-            "wK", Position(1, 1), Position(1 + dr, 1 + dc), self.board
+            "wK", Cell(1, 1), Cell(1 + dr, 1 + dc), self.board
         ) is True
 
     def test_two_steps_is_illegal(self):
         board = _b("wK . .")
-        assert self.rule.is_legal_move("wK", Position(0, 0), Position(0, 2), board) is False
+        assert self.rule.is_legal_move("wK", Cell(0, 0), Cell(0, 2), board) is False
 
     def test_does_not_require_path_check(self):
-        assert self.rule.requires_path_check(Position(1, 1), Position(1, 2)) is False
+        assert self.rule.requires_path_check(Cell(1, 1), Cell(1, 2)) is False
 
 
 # ===========================================================================
@@ -218,63 +218,63 @@ class TestPawnRule:
 
     def test_white_forward_onto_empty_is_legal(self):
         board = _b(". .", "wP .")
-        assert self.rule.is_legal_move("wP", Position(1, 0), Position(0, 0), board) is True
+        assert self.rule.is_legal_move("wP", Cell(1, 0), Cell(0, 0), board) is True
 
     def test_white_forward_onto_occupied_is_illegal(self):
         board = _b("bP .", "wP .")
-        assert self.rule.is_legal_move("wP", Position(1, 0), Position(0, 0), board) is False
+        assert self.rule.is_legal_move("wP", Cell(1, 0), Cell(0, 0), board) is False
 
     def test_black_forward_onto_empty_is_legal(self):
         board = _b("bP .", ". .")
-        assert self.rule.is_legal_move("bP", Position(0, 0), Position(1, 0), board) is True
+        assert self.rule.is_legal_move("bP", Cell(0, 0), Cell(1, 0), board) is True
 
     def test_white_backward_is_illegal(self):
         board = _b("wP .", ". .")
-        assert self.rule.is_legal_move("wP", Position(0, 0), Position(1, 0), board) is False
+        assert self.rule.is_legal_move("wP", Cell(0, 0), Cell(1, 0), board) is False
 
     # -- diagonal capture ----------------------------------------------------
 
     def test_diagonal_capture_onto_enemy_is_legal(self):
         board = _b(". bN", "wP .")
-        assert self.rule.is_legal_move("wP", Position(1, 0), Position(0, 1), board) is True
+        assert self.rule.is_legal_move("wP", Cell(1, 0), Cell(0, 1), board) is True
 
     def test_diagonal_onto_empty_is_illegal(self):
         board = _b(". .", "wP .")
-        assert self.rule.is_legal_move("wP", Position(1, 0), Position(0, 1), board) is False
+        assert self.rule.is_legal_move("wP", Cell(1, 0), Cell(0, 1), board) is False
 
     def test_diagonal_onto_friendly_is_still_legal_pattern(self):
         """Friendly-fire is RuleEngine's generic job, not the piece
         rule's — the pattern itself (diagonal onto an occupied square)
         is legal regardless of colour."""
         board = _b(". wN", "wP .")
-        assert self.rule.is_legal_move("wP", Position(1, 0), Position(0, 1), board) is True
+        assert self.rule.is_legal_move("wP", Cell(1, 0), Cell(0, 1), board) is True
 
     # -- two-step advance ------------------------------------------------
 
     def test_white_two_step_from_start_row_is_legal(self):
         board = _b(". .", ". .", "wP .", ". .")  # 4 rows: start row = 2
-        assert self.rule.is_legal_move("wP", Position(2, 0), Position(0, 0), board) is True
+        assert self.rule.is_legal_move("wP", Cell(2, 0), Cell(0, 0), board) is True
 
     def test_white_two_step_off_start_row_is_illegal(self):
         board = _b(". .", ". .", ". .", "wP .")
-        assert self.rule.is_legal_move("wP", Position(3, 0), Position(1, 0), board) is False
+        assert self.rule.is_legal_move("wP", Cell(3, 0), Cell(1, 0), board) is False
 
     def test_black_two_step_from_start_row_is_legal(self):
         board = _b(". .", "bP .", ". .", ". .")  # start row = 1
-        assert self.rule.is_legal_move("bP", Position(1, 0), Position(3, 0), board) is True
+        assert self.rule.is_legal_move("bP", Cell(1, 0), Cell(3, 0), board) is True
 
     def test_two_step_onto_occupied_destination_is_illegal(self):
         board = _b("bN .", ". .", "wP .", ". .")
-        assert self.rule.is_legal_move("wP", Position(2, 0), Position(0, 0), board) is False
+        assert self.rule.is_legal_move("wP", Cell(2, 0), Cell(0, 0), board) is False
 
     def test_three_steps_is_illegal(self):
         board = _b(". .", ". .", ". .", "wP .")
-        assert self.rule.is_legal_move("wP", Position(3, 0), Position(0, 0), board) is False
+        assert self.rule.is_legal_move("wP", Cell(3, 0), Cell(0, 0), board) is False
 
     def test_requires_path_check_only_for_two_step(self):
-        assert self.rule.requires_path_check(Position(3, 0), Position(1, 0)) is True
-        assert self.rule.requires_path_check(Position(1, 0), Position(0, 0)) is False
-        assert self.rule.requires_path_check(Position(1, 0), Position(0, 1)) is False
+        assert self.rule.requires_path_check(Cell(3, 0), Cell(1, 0)) is True
+        assert self.rule.requires_path_check(Cell(1, 0), Cell(0, 0)) is False
+        assert self.rule.requires_path_check(Cell(1, 0), Cell(0, 1)) is False
 
 
 # ===========================================================================
@@ -287,17 +287,17 @@ class TestRuleEngineOutsideBoard:
 
     def test_to_pos_outside_board(self):
         board = _b("wR . .")
-        result = self.engine.validate_move("wR", Position(0, 0), Position(0, 99), board)
+        result = self.engine.validate_move("wR", Cell(0, 0), Cell(0, 99), board)
         assert result == MoveResult.OUTSIDE_BOARD
 
     def test_from_pos_outside_board(self):
         board = _b("wR . .")
-        result = self.engine.validate_move("wR", Position(5, 5), Position(0, 0), board)
+        result = self.engine.validate_move("wR", Cell(5, 5), Cell(0, 0), board)
         assert result == MoveResult.OUTSIDE_BOARD
 
     def test_negative_position_outside_board(self):
         board = _b("wR . .")
-        result = self.engine.validate_move("wR", Position(0, 0), Position(-1, 0), board)
+        result = self.engine.validate_move("wR", Cell(0, 0), Cell(-1, 0), board)
         assert result == MoveResult.OUTSIDE_BOARD
 
 
@@ -305,7 +305,7 @@ class TestRuleEngineSamePosition:
     def test_same_position_is_reported_even_with_a_piece_there(self):
         board = _b("wR . .")
         engine = RuleEngine()
-        result = engine.validate_move("wR", Position(0, 0), Position(0, 0), board)
+        result = engine.validate_move("wR", Cell(0, 0), Cell(0, 0), board)
         assert result == MoveResult.SAME_POSITION
 
 
@@ -313,7 +313,7 @@ class TestRuleEngineEmptySource:
     def test_empty_source_cell(self):
         board = _b(". . .")
         engine = RuleEngine()
-        result = engine.validate_move("wR", Position(0, 0), Position(0, 1), board)
+        result = engine.validate_move("wR", Cell(0, 0), Cell(0, 1), board)
         assert result == MoveResult.EMPTY_SOURCE
 
 
@@ -321,7 +321,7 @@ class TestRuleEngineUnknownPieceType:
     def test_unregistered_piece_type(self):
         board = _b("wX .")
         engine = RuleEngine()
-        result = engine.validate_move("wX", Position(0, 0), Position(0, 1), board)
+        result = engine.validate_move("wX", Cell(0, 0), Cell(0, 1), board)
         assert result == MoveResult.UNKNOWN_PIECE_TYPE
 
 
@@ -329,13 +329,13 @@ class TestRuleEngineIllegalPattern:
     def test_rook_diagonal_is_illegal_pattern(self):
         board = _b("wR . .", ". . .", ". . .")
         engine = RuleEngine()
-        result = engine.validate_move("wR", Position(0, 0), Position(2, 2), board)
+        result = engine.validate_move("wR", Cell(0, 0), Cell(2, 2), board)
         assert result == MoveResult.ILLEGAL_PATTERN
 
     def test_knight_straight_line_is_illegal_pattern(self):
         board = _b("wN . .")
         engine = RuleEngine()
-        result = engine.validate_move("wN", Position(0, 0), Position(0, 2), board)
+        result = engine.validate_move("wN", Cell(0, 0), Cell(0, 2), board)
         assert result == MoveResult.ILLEGAL_PATTERN
 
 
@@ -343,7 +343,7 @@ class TestRuleEngineFriendlyFire:
     def test_landing_on_own_colour_is_friendly_fire(self):
         board = _b("wR wN .")
         engine = RuleEngine()
-        result = engine.validate_move("wR", Position(0, 0), Position(0, 1), board)
+        result = engine.validate_move("wR", Cell(0, 0), Cell(0, 1), board)
         assert result == MoveResult.FRIENDLY_FIRE
 
     def test_friendly_fire_reported_even_though_pattern_was_legal(self):
@@ -352,7 +352,7 @@ class TestRuleEngineFriendlyFire:
         ILLEGAL_PATTERN; it gets its own, more specific result."""
         board = _b("wB . .", ". wN .", ". . .")
         engine = RuleEngine()
-        result = engine.validate_move("wB", Position(0, 0), Position(1, 1), board)
+        result = engine.validate_move("wB", Cell(0, 0), Cell(1, 1), board)
         assert result == MoveResult.FRIENDLY_FIRE
 
 
@@ -360,26 +360,26 @@ class TestRuleEngineBlockedPath:
     def test_rook_blocked_by_intermediate_piece(self):
         board = _b("wR bN . .")
         engine = RuleEngine()
-        result = engine.validate_move("wR", Position(0, 0), Position(0, 3), board)
+        result = engine.validate_move("wR", Cell(0, 0), Cell(0, 3), board)
         assert result == MoveResult.BLOCKED_PATH
 
     def test_bishop_blocked_by_intermediate_piece(self):
         board = _b("wB . . .", ". bN . .", ". . . .", ". . . .")
         engine = RuleEngine()
-        result = engine.validate_move("wB", Position(0, 0), Position(2, 2), board)
+        result = engine.validate_move("wB", Cell(0, 0), Cell(2, 2), board)
         assert result == MoveResult.BLOCKED_PATH
 
     def test_pawn_two_step_blocked_by_intermediate_piece(self):
         board = _b(". .", "bN .", "wP .", ". .")  # blocker at the intermediate row
         engine = RuleEngine()
-        result = engine.validate_move("wP", Position(2, 0), Position(0, 0), board)
+        result = engine.validate_move("wP", Cell(2, 0), Cell(0, 0), board)
         assert result == MoveResult.BLOCKED_PATH
 
     def test_knight_is_never_blocked(self):
         board = _b("wN bN .", ". . .")
         engine = RuleEngine()
         # (0,0) -> (1,2) is a legal knight L-shape jumping "over" bN at (0,1)
-        result = engine.validate_move("wN", Position(0, 0), Position(1, 2), board)
+        result = engine.validate_move("wN", Cell(0, 0), Cell(1, 2), board)
         assert result == MoveResult.OK
 
 
@@ -389,31 +389,31 @@ class TestRuleEngineOk:
 
     def test_clear_rook_move_is_ok(self):
         board = _b("wR . .")
-        assert self.engine.validate_move("wR", Position(0, 0), Position(0, 2), board) == MoveResult.OK
+        assert self.engine.validate_move("wR", Cell(0, 0), Cell(0, 2), board) == MoveResult.OK
 
     def test_clear_bishop_move_is_ok(self):
         board = _b("wB . .", ". . .", ". . .")
-        assert self.engine.validate_move("wB", Position(0, 0), Position(2, 2), board) == MoveResult.OK
+        assert self.engine.validate_move("wB", Cell(0, 0), Cell(2, 2), board) == MoveResult.OK
 
     def test_clear_queen_diagonal_move_is_ok(self):
         board = _b("wQ . .", ". . .", ". . .")
-        assert self.engine.validate_move("wQ", Position(0, 0), Position(2, 2), board) == MoveResult.OK
+        assert self.engine.validate_move("wQ", Cell(0, 0), Cell(2, 2), board) == MoveResult.OK
 
     def test_knight_jump_is_ok(self):
         board = _b("wN . .", ". . .", ". . .")
-        assert self.engine.validate_move("wN", Position(0, 0), Position(1, 2), board) == MoveResult.OK
+        assert self.engine.validate_move("wN", Cell(0, 0), Cell(1, 2), board) == MoveResult.OK
 
     def test_king_one_step_is_ok(self):
         board = _b(". . .", ". wK .", ". . .")
-        assert self.engine.validate_move("wK", Position(1, 1), Position(1, 2), board) == MoveResult.OK
+        assert self.engine.validate_move("wK", Cell(1, 1), Cell(1, 2), board) == MoveResult.OK
 
     def test_pawn_capture_is_ok(self):
         board = _b(". bN", "wP .")
-        assert self.engine.validate_move("wP", Position(1, 0), Position(0, 1), board) == MoveResult.OK
+        assert self.engine.validate_move("wP", Cell(1, 0), Cell(0, 1), board) == MoveResult.OK
 
     def test_enemy_capture_orthogonal_is_ok(self):
         board = _b("wR bN .")
-        assert self.engine.validate_move("wR", Position(0, 0), Position(0, 1), board) == MoveResult.OK
+        assert self.engine.validate_move("wR", Cell(0, 0), Cell(0, 1), board) == MoveResult.OK
 
 
 # ===========================================================================
@@ -425,7 +425,7 @@ class TestRuleEngineRegister:
         engine = RuleEngine()
         engine.register("X", KnightRule())
         board = _b(". . . . .", ". . . . .", ". . wX . .", ". . . . .", ". . . . .")
-        result = engine.validate_move("wX", Position(2, 2), Position(0, 1), board)
+        result = engine.validate_move("wX", Cell(2, 2), Cell(0, 1), board)
         assert result == MoveResult.OK
 
     def test_replace_existing_rule(self):
@@ -436,7 +436,7 @@ class TestRuleEngineRegister:
         engine = RuleEngine()
         engine.register("R", _AlwaysIllegal())
         board = _b("wR . . .")
-        result = engine.validate_move("wR", Position(0, 0), Position(0, 3), board)
+        result = engine.validate_move("wR", Cell(0, 0), Cell(0, 3), board)
         assert result == MoveResult.ILLEGAL_PATTERN
 
     def test_default_registry_is_not_mutated_by_instance(self):
@@ -444,7 +444,7 @@ class TestRuleEngineRegister:
         e1.register("R", KnightRule())
         board = _b("wR . . .")
         # e2's Rook must still behave like a real Rook.
-        assert e2.validate_move("wR", Position(0, 0), Position(0, 3), board) == MoveResult.OK
+        assert e2.validate_move("wR", Cell(0, 0), Cell(0, 3), board) == MoveResult.OK
 
     def test_custom_rule_can_return_illegal_pattern_for_everything(self):
         class _NeverLegal(IPieceRule):
@@ -453,5 +453,5 @@ class TestRuleEngineRegister:
 
         engine = RuleEngine(rules={"P": _NeverLegal()})
         board = _b(". .", "wP .")
-        result = engine.validate_move("wP", Position(1, 0), Position(0, 0), board)
+        result = engine.validate_move("wP", Cell(1, 0), Cell(0, 0), board)
         assert result == MoveResult.ILLEGAL_PATTERN

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from typing import Dict, Optional, Set
 
-from core.config import PIECE_POINTS
-from core.models import Color, PendingJump, PendingMove, Position
+from shared.constants import PIECE_POINTS
+from shared.models.color import Color
+from shared.models.cell import Cell
+from core.models import PendingJump, PendingMove
 from engine.geometry import is_diagonal, is_orthogonal
 from engine.snapshot import BoardSnapshot, GameSnapshot
 
@@ -91,7 +93,7 @@ class ScoreTracker:
         """
         for row in range(previous_board.num_rows):
             for col in range(previous_board.num_cols):
-                pos = Position(row=row, col=col)
+                pos = Cell(row=row, col=col)
                 before = previous_board.get_piece_at(pos)
                 if before is None:
                     continue
@@ -146,7 +148,7 @@ class ScoreTracker:
 
     @staticmethod
     def _airborne_defender_at(
-        pos: Position, attacker_piece: str, airborne: "tuple[PendingJump, ...]"
+        pos: Cell, attacker_piece: str, airborne: "tuple[PendingJump, ...]"
     ) -> Optional[PendingJump]:
         """The ``PendingJump`` defending *pos*, iff it's an enemy of
         *attacker_piece* -- same rule as
@@ -179,7 +181,7 @@ class ScoreTracker:
             step_r, step_c = dr // steps, dc // steps
             r, c = pm.from_pos.row + step_r, pm.from_pos.col + step_c
             while (r, c) != (pm.to_pos.row, pm.to_pos.col):
-                cells.append(Position(r, c))
+                cells.append(Cell(r, c))
                 r += step_r
                 c += step_c
 

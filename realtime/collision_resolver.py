@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import List
 
-from core.models import PendingJump, PendingMove, Position, same_color
-from engine.board import AbstractBoard
+from shared.models.cell import Cell
+from core.models import PendingJump, PendingMove, same_color
+from shared.models.board import AbstractBoard
 from engine.geometry import is_diagonal, is_orthogonal
 
 # ---------------------------------------------------------------------------
@@ -28,7 +29,7 @@ class CollisionResolver:
     """Resolves route-blocking and airborne-interception outcomes for a
     due ``PendingMove`` against the board's current state."""
 
-    def path_cells(self, from_pos: Position, to_pos: Position) -> List[Position]:
+    def path_cells(self, from_pos: Cell, to_pos: Cell) -> List[Cell]:
         """Return the ordered list of cells strictly between *from_pos*
         and *to_pos* on a straight line (orthogonal or diagonal) —
         excludes both endpoints, nearest-to-``from_pos`` first. Empty
@@ -52,15 +53,15 @@ class CollisionResolver:
 
         step_r = dr // steps
         step_c = dc // steps
-        cells: List[Position] = []
+        cells: List[Cell] = []
         r, c = from_pos.row + step_r, from_pos.col + step_c
         while (r, c) != (to_pos.row, to_pos.col):
-            cells.append(Position(r, c))
+            cells.append(Cell(r, c))
             r += step_r
             c += step_c
         return cells
 
-    def is_friendly_occupied(self, pos: Position, piece: str, board: AbstractBoard) -> bool:
+    def is_friendly_occupied(self, pos: Cell, piece: str, board: AbstractBoard) -> bool:
         """True iff *pos* is currently occupied by a piece of the same
         colour as *piece*.
 
@@ -74,7 +75,7 @@ class CollisionResolver:
 
     def stop_before_friendly_block(
         self, pm: PendingMove, board: AbstractBoard
-    ) -> Position | None:
+    ) -> Cell | None:
         """Where a due move should stop short, if a friendly piece is now
         blocking its route — or None if that doesn't apply.
 
@@ -101,7 +102,7 @@ class CollisionResolver:
         return None  # path fully clear
 
     def airborne_defender(
-        self, pos: Position, attacker: str, airborne: List[PendingJump]
+        self, pos: Cell, attacker: str, airborne: List[PendingJump]
     ) -> PendingJump | None:
         """Return the ``PendingJump`` defending *pos*, iff it belongs to
         the opposite colour of *attacker* — i.e. it intercepts *attacker*

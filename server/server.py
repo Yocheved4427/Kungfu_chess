@@ -10,12 +10,13 @@ from typing import Dict, List, Optional
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
-from core.models import Color
 from engine.game import GameEngine
 from engine.game_state import GameState
-from engine.board import TextBoard
 from logger_config import setup_logging
-from server.algebraic import AlgebraicNotationError, algebraic_to_position
+from server.algebraic import AlgebraicNotationError, algebraic_to_cell
+from shared.constants import DEFAULT_HOST, DEFAULT_PORT
+from shared.models.board import TextBoard
+from shared.models.color import Color
 from ui.events import GameEvent, Observer
 from ui.game_factory import STANDARD_BOARD_ROWS
 
@@ -37,10 +38,10 @@ logger = logging.getLogger(__name__)
 # the moment GameServer.game_ready — an asyncio.Event — gets set;
 # run_forever()'s background loops wait on it before they start.
 #
-# server/ imports from engine/, core/, and ui/ (ui.events for the Bus
-# contract + serialization, ui.game_factory for STANDARD_BOARD_ROWS) —
-# never the reverse; nothing in engine/, core/, or ui/ imports anything
-# from server/.
+# server/ imports from engine/, core/, shared/, and ui/ (ui.events for
+# the Bus contract + serialization, ui.game_factory for
+# STANDARD_BOARD_ROWS) — never the reverse; nothing in engine/, core/,
+# shared/, or ui/ imports anything from server/.
 #
 # Wire protocol (JSON, one message per WebSocket text frame):
 #
@@ -87,9 +88,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 TICK_INTERVAL_S = 0.03  # 30ms -- matches main_gui.py's own render-loop cadence
-DEFAULT_HOST = "localhost"
-DEFAULT_PORT = 8765
 MAX_USERNAME_LENGTH = 32
+# DEFAULT_HOST/DEFAULT_PORT now come from shared.constants (Iteration:
+# shared/ extraction) -- re-imported above rather than redefined here,
+# so main_gui.py's --host/--port defaults (ui/cli.py) can reference the
+# exact same values instead of a second, separately-hardcoded copy.
 
 
 class _BroadcastObserver(Observer):
@@ -309,8 +312,8 @@ class GameServer:
         from_square = message.get("from")
         to_square = message.get("to")
         try:
-            from_pos = algebraic_to_position(from_square)
-            to_pos = algebraic_to_position(to_square)
+            from_pos = algebraic_to_cell(from_square)
+            to_pos = algebraic_to_cell(to_square)
         except AlgebraicNotationError as e:
             await self._send_error(websocket, str(e))
             return

@@ -4,7 +4,8 @@ from abc import ABC, abstractmethod
 from enum import Enum, auto
 from typing import TYPE_CHECKING
 
-from core.models import Position, same_color
+from shared.models.cell import Cell
+from core.models import same_color
 from engine.geometry import (
     is_diagonal,
     is_king_step,
@@ -16,7 +17,7 @@ from engine.geometry import (
 )
 
 if TYPE_CHECKING:
-    from engine.board import AbstractBoard
+    from shared.models.board import AbstractBoard
 
 # ---------------------------------------------------------------------------
 # Kung Fu Chess – Rule Engine  (Strategy Pattern / OCP)
@@ -115,13 +116,13 @@ class IPieceRule(ABC):
 
     @abstractmethod
     def is_legal_move(
-        self, piece: str, from_pos: Position, to_pos: Position, board: AbstractBoard
+        self, piece: str, from_pos: Cell, to_pos: Cell, board: AbstractBoard
     ) -> bool:
         """Return True iff *piece* may travel from *from_pos* to *to_pos*,
         ignoring friendly-fire and path-blocking (RuleEngine handles
         those generically for every piece type)."""
 
-    def requires_path_check(self, from_pos: Position, to_pos: Position) -> bool:
+    def requires_path_check(self, from_pos: Cell, to_pos: Cell) -> bool:
         return False
 
 
@@ -261,8 +262,8 @@ class RuleEngine:
     def validate_move(
         self,
         piece: str,
-        from_pos: Position,
-        to_pos: Position,
+        from_pos: Cell,
+        to_pos: Cell,
         board: AbstractBoard,
     ) -> MoveResult:
         """Classify a proposed move from *from_pos* to *to_pos*.

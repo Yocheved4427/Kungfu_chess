@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from core.models import Position
+from shared.models.cell import Cell
 
 # ---------------------------------------------------------------------------
 # Kung Fu Chess – Coordinate Adapter
@@ -63,9 +63,9 @@ class BoardMapper:
     def cell_size(self) -> int:
         return self._cell_size
 
-    def pixel_to_cell(self, x: int, y: int) -> Position:
+    def pixel_to_cell(self, x: int, y: int) -> Cell:
         """Return the (row, col) cell containing pixel (x, y)."""
-        return Position(
+        return Cell(
             row=(y - self._y_offset) // self._cell_size,
             col=(x - self._x_offset) // self._cell_size,
         )

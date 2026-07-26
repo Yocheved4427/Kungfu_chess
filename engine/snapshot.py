@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-from core.models import Color, PendingJump, PendingMove, Position
-from engine.board import AbstractBoard
+from shared.models.color import Color
+from shared.models.cell import Cell
+from core.models import PendingJump, PendingMove
+from shared.models.board import AbstractBoard
 from engine.game_state import GameState
 
 # ---------------------------------------------------------------------------
@@ -59,7 +61,7 @@ class PieceSnapshot:
 
     color: Color
     kind: str
-    position: Position
+    position: Cell
     is_in_transit: bool = False
     is_airborne: bool = False
     is_in_cooldown: bool = False
@@ -69,7 +71,7 @@ class PieceSnapshot:
     def from_piece(
         cls,
         piece: str,
-        position: Position,
+        position: Cell,
         *,
         is_in_transit: bool = False,
         is_airborne: bool = False,
@@ -125,7 +127,7 @@ class BoardSnapshot:
         for row in range(board.num_rows):
             row_cells = []
             for col in range(board.num_cols):
-                pos = Position(row=row, col=col)
+                pos = Cell(row=row, col=col)
                 token = board.get_piece_at(pos)
                 if token is None or token == ".":
                     row_cells.append(None)
@@ -151,7 +153,7 @@ class BoardSnapshot:
             rows.append(tuple(row_cells))
         return cls(num_rows=board.num_rows, num_cols=board.num_cols, cells=tuple(rows))
 
-    def get_piece_at(self, position: Position) -> PieceSnapshot | None:
+    def get_piece_at(self, position: Cell) -> PieceSnapshot | None:
         """Return the snapshot at *position*, or ``None`` if empty/out of bounds.
 
         Mirrors ``AbstractBoard.get_piece_at`` so callers (e.g.

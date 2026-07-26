@@ -11,7 +11,7 @@ the parser itself is format-agnostic: it only strips line-endings and removes
 trailing blank lines.
 """
 
-from engine.board import AbstractBoard
+from shared.models.board import AbstractBoard
 from input.board_parser import BoardParser
 
 

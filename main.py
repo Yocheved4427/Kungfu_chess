@@ -1,7 +1,7 @@
 #https://github.com/Yocheved4427/Kungfu_chess
 import sys
 
-from core.config import CELL_SIZE, VALID_PIECE_CHARS
+from shared.constants import CELL_SIZE, VALID_PIECE_CHARS
 from engine.board_validator import BoardValidator, BoardValidationError
 from engine.game import GameEngine
 from input.board_parser import BoardParser

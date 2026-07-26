@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List
 
-from core.models import Color, PendingJump, PendingMove, Position
-from engine.board import AbstractBoard
+from shared.models.color import Color
+from shared.models.cell import Cell
+from core.models import PendingJump, PendingMove
+from shared.models.board import AbstractBoard
 
 # ---------------------------------------------------------------------------
 # Kung Fu Chess – Game State
@@ -41,7 +43,7 @@ class GameState:
                         ``GameEngine.tick``.
     ``pending``      – queued moves not yet arrived (``PendingMove``).
     ``airborne``     – pieces currently mid-jump (``PendingJump``).
-    ``cooldowns``    – ``{Position: expiry_time_ms}`` for cells still
+    ``cooldowns``    – ``{Cell: expiry_time_ms}`` for cells still
                         cooling down after a landing (see
                         ``GameEngine.is_in_cooldown``).
     ``game_over``    – True once a ``GameOverRule`` has ended the game.
@@ -53,6 +55,6 @@ class GameState:
     current_time: int = 0
     pending: List[PendingMove] = field(default_factory=list)
     airborne: List[PendingJump] = field(default_factory=list)
-    cooldowns: Dict[Position, int] = field(default_factory=dict)
+    cooldowns: Dict[Cell, int] = field(default_factory=dict)
     game_over: bool = False
     winner: Color | None = None

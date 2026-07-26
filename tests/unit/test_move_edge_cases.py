@@ -26,8 +26,8 @@ across all the pathways a caller can use to attempt a move.
 
 from __future__ import annotations
 
-from core.models import Position
-from engine.board import TextBoard
+from shared.models.cell import Cell
+from shared.models.board import TextBoard
 from engine.game import GameEngine
 from engine.game_state import GameState
 from engine.rule_engine import MoveResult, RuleEngine
@@ -47,32 +47,32 @@ class TestOutsideBoardRuleEngine:
 
     def test_to_pos_column_past_the_right_edge(self):
         board = _b("wR . .")
-        result = self.engine.validate_move("wR", Position(0, 0), Position(0, 3), board)
+        result = self.engine.validate_move("wR", Cell(0, 0), Cell(0, 3), board)
         assert result == MoveResult.OUTSIDE_BOARD
 
     def test_to_pos_row_past_the_bottom_edge(self):
         board = _b("wR . .", ". . .", ". . .")
-        result = self.engine.validate_move("wR", Position(0, 0), Position(3, 0), board)
+        result = self.engine.validate_move("wR", Cell(0, 0), Cell(3, 0), board)
         assert result == MoveResult.OUTSIDE_BOARD
 
     def test_to_pos_negative_row(self):
         board = _b("wR . .", ". . .")
-        result = self.engine.validate_move("wR", Position(1, 0), Position(-1, 0), board)
+        result = self.engine.validate_move("wR", Cell(1, 0), Cell(-1, 0), board)
         assert result == MoveResult.OUTSIDE_BOARD
 
     def test_to_pos_negative_column(self):
         board = _b("wR . .")
-        result = self.engine.validate_move("wR", Position(0, 1), Position(0, -1), board)
+        result = self.engine.validate_move("wR", Cell(0, 1), Cell(0, -1), board)
         assert result == MoveResult.OUTSIDE_BOARD
 
     def test_from_pos_outside_board(self):
         board = _b("wR . .")
-        result = self.engine.validate_move("wR", Position(9, 9), Position(0, 0), board)
+        result = self.engine.validate_move("wR", Cell(9, 9), Cell(0, 0), board)
         assert result == MoveResult.OUTSIDE_BOARD
 
     def test_both_positions_outside_board(self):
         board = _b("wR . .")
-        result = self.engine.validate_move("wR", Position(50, 50), Position(-3, -3), board)
+        result = self.engine.validate_move("wR", Cell(50, 50), Cell(-3, -3), board)
         assert result == MoveResult.OUTSIDE_BOARD
 
     def test_outside_board_takes_priority_over_unknown_piece_type(self):
@@ -80,7 +80,7 @@ class TestOutsideBoardRuleEngine:
         an out-of-bounds move with a nonsense piece type is still
         reported as OUTSIDE_BOARD, not UNKNOWN_PIECE_TYPE."""
         board = _b("wZ .")
-        result = self.engine.validate_move("wZ", Position(0, 0), Position(0, 99), board)
+        result = self.engine.validate_move("wZ", Cell(0, 0), Cell(0, 99), board)
         assert result == MoveResult.OUTSIDE_BOARD
 
 
@@ -89,15 +89,15 @@ class TestOutsideBoardGameEngine:
         board = _b("wR . .")
         engine = GameEngine(board, move_duration=1000)
         state = GameState(board=board)
-        assert engine.attempt_move(state, Position(0, 0), Position(0, 99)) is False
+        assert engine.attempt_move(state, Cell(0, 0), Cell(0, 99)) is False
         assert state.pending == []
 
     def test_try_move_to_pos_outside_board_returns_outside_board(self):
         board = _b("wR . .")
         engine = GameEngine(board)
         state = GameState(board=board)
-        assert engine.try_move(state, Position(0, 0), Position(0, 99)) == MoveResult.OUTSIDE_BOARD
-        assert board.get_piece_at(Position(0, 0)) == "wR"
+        assert engine.try_move(state, Cell(0, 0), Cell(0, 99)) == MoveResult.OUTSIDE_BOARD
+        assert board.get_piece_at(Cell(0, 0)) == "wR"
 
     def test_click_outside_board_is_silently_ignored(self):
         board = _b("wK . .")
@@ -124,7 +124,7 @@ class TestEmptySourceRuleEngine:
 
     def test_empty_source_reports_empty_source(self):
         board = _b(". . .")
-        result = self.engine.validate_move("wR", Position(0, 0), Position(0, 1), board)
+        result = self.engine.validate_move("wR", Cell(0, 0), Cell(0, 1), board)
         assert result == MoveResult.EMPTY_SOURCE
 
     def test_empty_source_regardless_of_claimed_piece_type(self):
@@ -132,17 +132,17 @@ class TestEmptySourceRuleEngine:
         from_pos is empty — EMPTY_SOURCE wins before the piece registry
         is even consulted."""
         board = _b(". . .")
-        result = self.engine.validate_move("bQ", Position(0, 0), Position(0, 1), board)
+        result = self.engine.validate_move("bQ", Cell(0, 0), Cell(0, 1), board)
         assert result == MoveResult.EMPTY_SOURCE
 
     def test_empty_source_at_a_non_origin_cell(self):
         board = _b("wR . .", ". . .", ". . .")
-        result = self.engine.validate_move("wR", Position(1, 1), Position(1, 2), board)
+        result = self.engine.validate_move("wR", Cell(1, 1), Cell(1, 2), board)
         assert result == MoveResult.EMPTY_SOURCE
 
     def test_empty_source_takes_priority_over_unknown_piece_type(self):
         board = _b(". .")
-        result = self.engine.validate_move("wZ", Position(0, 0), Position(0, 1), board)
+        result = self.engine.validate_move("wZ", Cell(0, 0), Cell(0, 1), board)
         assert result == MoveResult.EMPTY_SOURCE
 
 
@@ -150,13 +150,13 @@ class TestEmptySourceGameEngine:
     def test_attempt_move_from_empty_cell_returns_false(self):
         engine = GameEngine(_b(". . ."), move_duration=1000)
         state = GameState(board=_b(". . ."))
-        assert engine.attempt_move(state, Position(0, 0), Position(0, 1)) is False
+        assert engine.attempt_move(state, Cell(0, 0), Cell(0, 1)) is False
         assert state.pending == []
 
     def test_try_move_from_empty_cell_returns_empty_source(self):
         engine = GameEngine(_b(". . ."))
         state = GameState(board=_b(". . ."))
-        assert engine.try_move(state, Position(0, 0), Position(0, 1)) == MoveResult.EMPTY_SOURCE
+        assert engine.try_move(state, Cell(0, 0), Cell(0, 1)) == MoveResult.EMPTY_SOURCE
 
     def test_click_on_empty_cell_does_not_select(self):
         engine = GameEngine(_b(". . ."), cell_size=100)
@@ -175,57 +175,57 @@ class TestIllegalPatternPerPiece:
 
     def test_rook_diagonal_move_is_illegal(self):
         board = _b("wR . .", ". . .", ". . .")
-        result = self.engine.validate_move("wR", Position(0, 0), Position(2, 2), board)
+        result = self.engine.validate_move("wR", Cell(0, 0), Cell(2, 2), board)
         assert result == MoveResult.ILLEGAL_PATTERN
 
     def test_bishop_orthogonal_move_is_illegal(self):
         board = _b("wB . .")
-        result = self.engine.validate_move("wB", Position(0, 0), Position(0, 2), board)
+        result = self.engine.validate_move("wB", Cell(0, 0), Cell(0, 2), board)
         assert result == MoveResult.ILLEGAL_PATTERN
 
     def test_bishop_uneven_diagonal_is_illegal(self):
         board = _b("wB . .", ". . .")
-        result = self.engine.validate_move("wB", Position(0, 0), Position(1, 2), board)
+        result = self.engine.validate_move("wB", Cell(0, 0), Cell(1, 2), board)
         assert result == MoveResult.ILLEGAL_PATTERN
 
     def test_knight_straight_line_is_illegal(self):
         board = _b("wN . .")
-        result = self.engine.validate_move("wN", Position(0, 0), Position(0, 2), board)
+        result = self.engine.validate_move("wN", Cell(0, 0), Cell(0, 2), board)
         assert result == MoveResult.ILLEGAL_PATTERN
 
     def test_knight_diagonal_is_illegal(self):
         board = _b("wN . .", ". . .")
-        result = self.engine.validate_move("wN", Position(0, 0), Position(1, 1), board)
+        result = self.engine.validate_move("wN", Cell(0, 0), Cell(1, 1), board)
         assert result == MoveResult.ILLEGAL_PATTERN
 
     def test_queen_knight_shape_is_illegal(self):
         board = _b("wQ . .", ". . .")
-        result = self.engine.validate_move("wQ", Position(0, 0), Position(1, 2), board)
+        result = self.engine.validate_move("wQ", Cell(0, 0), Cell(1, 2), board)
         assert result == MoveResult.ILLEGAL_PATTERN
 
     def test_king_two_steps_is_illegal(self):
         board = _b("wK . .")
-        result = self.engine.validate_move("wK", Position(0, 0), Position(0, 2), board)
+        result = self.engine.validate_move("wK", Cell(0, 0), Cell(0, 2), board)
         assert result == MoveResult.ILLEGAL_PATTERN
 
     def test_king_knight_shape_is_illegal(self):
         board = _b("wK . .", ". . .")
-        result = self.engine.validate_move("wK", Position(0, 0), Position(1, 2), board)
+        result = self.engine.validate_move("wK", Cell(0, 0), Cell(1, 2), board)
         assert result == MoveResult.ILLEGAL_PATTERN
 
     def test_pawn_sideways_move_is_illegal(self):
         board = _b("wP . .")
-        result = self.engine.validate_move("wP", Position(0, 0), Position(0, 1), board)
+        result = self.engine.validate_move("wP", Cell(0, 0), Cell(0, 1), board)
         assert result == MoveResult.ILLEGAL_PATTERN
 
     def test_pawn_backward_move_is_illegal(self):
         board = _b("wP .", ". .")
-        result = self.engine.validate_move("wP", Position(0, 0), Position(1, 0), board)
+        result = self.engine.validate_move("wP", Cell(0, 0), Cell(1, 0), board)
         assert result == MoveResult.ILLEGAL_PATTERN
 
     def test_pawn_three_step_is_illegal(self):
         board = _b(". .", ". .", ". .", "wP .")
-        result = self.engine.validate_move("wP", Position(3, 0), Position(0, 0), board)
+        result = self.engine.validate_move("wP", Cell(3, 0), Cell(0, 0), board)
         assert result == MoveResult.ILLEGAL_PATTERN
 
 
@@ -234,15 +234,15 @@ class TestIllegalPatternGameEngine:
         board = _b("wB . .")
         engine = GameEngine(board, move_duration=1000)
         state = GameState(board=board)
-        assert engine.attempt_move(state, Position(0, 0), Position(0, 1)) is False
+        assert engine.attempt_move(state, Cell(0, 0), Cell(0, 1)) is False
         assert state.pending == []
 
     def test_try_move_illegal_pattern_returns_illegal_pattern(self):
         board = _b("wB . .")
         engine = GameEngine(board)
         state = GameState(board=board)
-        assert engine.try_move(state, Position(0, 0), Position(0, 1)) == MoveResult.ILLEGAL_PATTERN
-        assert board.get_piece_at(Position(0, 0)) == "wB"
+        assert engine.try_move(state, Cell(0, 0), Cell(0, 1)) == MoveResult.ILLEGAL_PATTERN
+        assert board.get_piece_at(Cell(0, 0)) == "wB"
 
     def test_click_illegal_pattern_leaves_board_unchanged(self):
         board = _b("wN . .")
@@ -251,7 +251,7 @@ class TestIllegalPatternGameEngine:
         engine.handle_click(state, 50, 50)    # select wN
         engine.handle_click(state, 250, 50)   # straight line — illegal for a Knight
         assert state.pending == []
-        assert board.get_piece_at(Position(0, 0)) == "wN"
+        assert board.get_piece_at(Cell(0, 0)) == "wN"
 
 
 # ===========================================================================
@@ -264,42 +264,42 @@ class TestBlockedPathPerPiece:
 
     def test_rook_blocked_horizontally(self):
         board = _b("wR bN . .")
-        result = self.engine.validate_move("wR", Position(0, 0), Position(0, 3), board)
+        result = self.engine.validate_move("wR", Cell(0, 0), Cell(0, 3), board)
         assert result == MoveResult.BLOCKED_PATH
 
     def test_rook_blocked_vertically(self):
         board = _b("wR . .", "bN . .", ". . .")
-        result = self.engine.validate_move("wR", Position(0, 0), Position(2, 0), board)
+        result = self.engine.validate_move("wR", Cell(0, 0), Cell(2, 0), board)
         assert result == MoveResult.BLOCKED_PATH
 
     def test_bishop_blocked_diagonally(self):
         board = _b("wB . . .", ". bN . .", ". . . .")
-        result = self.engine.validate_move("wB", Position(0, 0), Position(2, 2), board)
+        result = self.engine.validate_move("wB", Cell(0, 0), Cell(2, 2), board)
         assert result == MoveResult.BLOCKED_PATH
 
     def test_queen_blocked_orthogonally(self):
         board = _b("wQ bN . .")
-        result = self.engine.validate_move("wQ", Position(0, 0), Position(0, 3), board)
+        result = self.engine.validate_move("wQ", Cell(0, 0), Cell(0, 3), board)
         assert result == MoveResult.BLOCKED_PATH
 
     def test_queen_blocked_diagonally(self):
         board = _b("wQ . . .", ". bN . .", ". . . .")
-        result = self.engine.validate_move("wQ", Position(0, 0), Position(2, 2), board)
+        result = self.engine.validate_move("wQ", Cell(0, 0), Cell(2, 2), board)
         assert result == MoveResult.BLOCKED_PATH
 
     def test_pawn_two_step_blocked_by_intermediate_piece(self):
         board = _b(". .", "bN .", "wP .", ". .")  # blocker on the intermediate row
-        result = self.engine.validate_move("wP", Position(2, 0), Position(0, 0), board)
+        result = self.engine.validate_move("wP", Cell(2, 0), Cell(0, 0), board)
         assert result == MoveResult.BLOCKED_PATH
 
     def test_knight_is_never_blocked_by_an_intermediate_piece(self):
         board = _b("wN bN .", ". . .")
-        result = self.engine.validate_move("wN", Position(0, 0), Position(1, 2), board)
+        result = self.engine.validate_move("wN", Cell(0, 0), Cell(1, 2), board)
         assert result == MoveResult.OK
 
     def test_king_one_step_has_no_intermediate_square_to_block(self):
         board = _b(". . .", ". wK .", ". . .")
-        result = self.engine.validate_move("wK", Position(1, 1), Position(1, 2), board)
+        result = self.engine.validate_move("wK", Cell(1, 1), Cell(1, 2), board)
         assert result == MoveResult.OK
 
 
@@ -308,15 +308,15 @@ class TestBlockedPathGameEngine:
         board = _b("wR bN . .")
         engine = GameEngine(board, move_duration=1000)
         state = GameState(board=board)
-        assert engine.attempt_move(state, Position(0, 0), Position(0, 3)) is False
+        assert engine.attempt_move(state, Cell(0, 0), Cell(0, 3)) is False
         assert state.pending == []
 
     def test_try_move_blocked_path_returns_blocked_path(self):
         board = _b("wR bN . .")
         engine = GameEngine(board)
         state = GameState(board=board)
-        assert engine.try_move(state, Position(0, 0), Position(0, 3)) == MoveResult.BLOCKED_PATH
-        assert board.get_piece_at(Position(0, 0)) == "wR"
+        assert engine.try_move(state, Cell(0, 0), Cell(0, 3)) == MoveResult.BLOCKED_PATH
+        assert board.get_piece_at(Cell(0, 0)) == "wR"
 
     def test_click_blocked_path_leaves_board_unchanged(self):
         board = _b("wR bN . .")
@@ -325,7 +325,7 @@ class TestBlockedPathGameEngine:
         engine.handle_click(state, 50, 50)    # select wR
         engine.handle_click(state, 350, 50)   # blocked by bN — illegal
         assert state.pending == []
-        assert board.get_piece_at(Position(0, 0)) == "wR"
+        assert board.get_piece_at(Cell(0, 0)) == "wR"
 
 
 # ===========================================================================
@@ -341,7 +341,7 @@ class TestMoveAfterKingCaptured:
         board = _b("wR . .", "bK . .", ". . wN")
         engine = GameEngine(board, cell_size=100, move_duration=1000)
         state = GameState(board=board)
-        engine.attempt_move(state, Position(0, 0), Position(1, 0))  # captures bK
+        engine.attempt_move(state, Cell(0, 0), Cell(1, 0))  # captures bK
         engine.tick(state, 1000)
         assert state.game_over is True
         return engine, state
@@ -354,14 +354,14 @@ class TestMoveAfterKingCaptured:
     def test_attempt_move_after_king_captured_returns_false(self):
         engine, state = self._engine_with_game_over()
         before = state.board.get_rows()
-        assert engine.attempt_move(state, Position(2, 2), Position(2, 1)) is False
+        assert engine.attempt_move(state, Cell(2, 2), Cell(2, 1)) is False
         assert state.pending == []
         assert state.board.get_rows() == before
 
     def test_try_move_after_king_captured_returns_game_over(self):
         engine, state = self._engine_with_game_over()
         before = state.board.get_rows()
-        result = engine.try_move(state, Position(2, 2), Position(2, 1))
+        result = engine.try_move(state, Cell(2, 2), Cell(2, 1))
         assert result == MoveResult.GAME_OVER
         assert state.board.get_rows() == before
 
@@ -377,10 +377,10 @@ class TestMoveAfterKingCaptured:
         board = _b("wR . .", "bK . .")
         engine = GameEngine(board, move_duration=1000, rule_engine=_AlwaysOk())
         state = GameState(board=board)
-        engine.attempt_move(state, Position(0, 0), Position(1, 0))  # captures bK
+        engine.attempt_move(state, Cell(0, 0), Cell(1, 0))  # captures bK
         engine.tick(state, 1000)
         assert state.game_over is True
-        assert engine.try_move(state, Position(1, 0), Position(1, 1)) == MoveResult.GAME_OVER
+        assert engine.try_move(state, Cell(1, 0), Cell(1, 1)) == MoveResult.GAME_OVER
 
     def test_click_after_king_captured_does_not_select(self):
         engine, state = self._engine_with_game_over()
@@ -404,5 +404,5 @@ class TestMoveAfterKingCaptured:
         """Even a move that would otherwise be perfectly legal (a clear
         Knight jump) is refused once the game is over."""
         engine, state = self._engine_with_game_over()
-        assert engine.attempt_move(state, Position(2, 2), Position(0, 1)) is False
-        assert engine.try_move(state, Position(2, 2), Position(0, 1)) == MoveResult.GAME_OVER
+        assert engine.attempt_move(state, Cell(2, 2), Cell(0, 1)) is False
+        assert engine.try_move(state, Cell(2, 2), Cell(0, 1)) == MoveResult.GAME_OVER

@@ -30,9 +30,9 @@ Pixel mapping (CELL_SIZE = 100):
 
 import pytest
 
-from core.config import MOVE_DURATION
-from core.models import Position
-from engine.board import TextBoard
+from shared.constants import MOVE_DURATION
+from shared.models.cell import Cell
+from shared.models.board import TextBoard
 from engine.game import GameEngine
 from engine.game_state import GameState
 from engine.rule_engine import MoveResult
@@ -169,12 +169,12 @@ class TestGameEngineClickNoSelection:
     def test_click_piece_selects_it(self):
         engine, state = _mini_engine()
         engine.handle_click(state, 0, 0)     # (row=0, col=0) → wK
-        assert engine.selection == Position(0, 0)
+        assert engine.selection == Cell(0, 0)
 
     def test_click_black_piece_selects_it(self):
         engine, state = _mini_engine()
         engine.handle_click(state, 100, 100)  # (row=1, col=1) → bK
-        assert engine.selection == Position(1, 1)
+        assert engine.selection == Cell(1, 1)
 
 
 # ===========================================================================
@@ -188,7 +188,7 @@ class TestGameEngineClickFriendly:
         state = GameState(board=board)
         engine.handle_click(state, 0, 0)    # select wK at col=0
         engine.handle_click(state, 100, 0)  # click wR at col=1 (friendly)
-        assert engine.selection == Position(0, 1)
+        assert engine.selection == Cell(0, 1)
 
     def test_click_friendly_does_not_move_piece(self):
         board = TextBoard(["wK wR"])
@@ -197,7 +197,7 @@ class TestGameEngineClickFriendly:
         engine.handle_click(state, 0, 0)
         engine.handle_click(state, 100, 0)
         # wK must still be in col=0
-        assert board.get_piece_at(Position(0, 0)) == "wK"
+        assert board.get_piece_at(Cell(0, 0)) == "wK"
 
     def test_click_friendly_selection_is_new_piece(self):
         board = TextBoard(["wK wR"])
@@ -205,7 +205,7 @@ class TestGameEngineClickFriendly:
         state = GameState(board=board)
         engine.handle_click(state, 0, 0)
         engine.handle_click(state, 100, 0)
-        assert engine.selection == Position(0, 1)
+        assert engine.selection == Cell(0, 1)
 
 
 # ===========================================================================
@@ -220,15 +220,15 @@ class TestGameEngineClickQueuesMove:
         assert len(state.pending) == 1
         pm = state.pending[0]
         assert pm.piece == "wK"
-        assert pm.from_pos == Position(0, 0)
-        assert pm.to_pos == Position(0, 1)
+        assert pm.from_pos == Cell(0, 0)
+        assert pm.to_pos == Cell(0, 1)
 
     def test_board_unchanged_until_move_arrives(self):
         engine, state = _mini_engine()
         engine.handle_click(state, 0, 0)
         engine.handle_click(state, 100, 0)
-        assert state.board.get_piece_at(Position(0, 0)) == "wK"
-        assert state.board.get_piece_at(Position(0, 1)) == "."
+        assert state.board.get_piece_at(Cell(0, 0)) == "wK"
+        assert state.board.get_piece_at(Cell(0, 1)) == "."
 
     def test_move_clears_selection(self):
         engine, state = _mini_engine()
@@ -241,16 +241,16 @@ class TestGameEngineClickQueuesMove:
         engine.handle_click(state, 0, 0)     # select wK
         engine.handle_click(state, 100, 0)   # queue move to (0,1), 1 cell away
         engine.tick(state, engine._move_duration)
-        assert state.board.get_piece_at(Position(0, 0)) == "."
-        assert state.board.get_piece_at(Position(0, 1)) == "wK"
+        assert state.board.get_piece_at(Cell(0, 0)) == "."
+        assert state.board.get_piece_at(Cell(0, 1)) == "wK"
 
     def test_click_enemy_with_selection_captures_on_arrival(self):
         engine, state = _mini_engine()
         engine.handle_click(state, 0, 0)       # select wK at (0,0)
         engine.handle_click(state, 100, 100)   # click bK at (1,1) → queue capture
         engine.tick(state, engine._move_duration)  # 1 cell (Chebyshev) away
-        assert state.board.get_piece_at(Position(0, 0)) == "."
-        assert state.board.get_piece_at(Position(1, 1)) == "wK"
+        assert state.board.get_piece_at(Cell(0, 0)) == "."
+        assert state.board.get_piece_at(Cell(1, 1)) == "wK"
 
     def test_arrival_time_scales_with_chebyshev_distance(self):
         board = TextBoard(["wR . .", ". . .", ". . ."])
@@ -277,8 +277,8 @@ class TestGameEngineClickQueuesMove:
         completed = [e for e in obs.events if isinstance(e, MoveCompletedEvent)]
         assert len(completed) == 1
         assert completed[0].piece == "wK"
-        assert completed[0].from_pos == Position(0, 0)
-        assert completed[0].to_pos == Position(0, 1)
+        assert completed[0].from_pos == Cell(0, 0)
+        assert completed[0].to_pos == Cell(0, 1)
         assert completed[0].arrival_time == engine._move_duration
 
     def test_move_not_completed_before_arrival(self):
@@ -289,7 +289,7 @@ class TestGameEngineClickQueuesMove:
         engine.handle_click(state, 100, 0)
         engine.tick(state, engine._move_duration - 1)
         assert not any(isinstance(e, MoveCompletedEvent) for e in obs.events)
-        assert state.board.get_piece_at(Position(0, 0)) == "wK"
+        assert state.board.get_piece_at(Cell(0, 0)) == "wK"
 
 
 # ===========================================================================
@@ -421,7 +421,7 @@ class TestGameEngineMapperDI:
         engine = GameEngine(board, mapper=BoardMapper(50))
         state = GameState(board=board)
         engine.handle_click(state, 25, 25)  # would be OOB-ish under cell_size=100
-        assert engine.selection == Position(0, 0)
+        assert engine.selection == Cell(0, 0)
 
     def test_custom_mapper_is_used_by_handle_jump(self):
         from input.board_mapper import BoardMapper
@@ -430,7 +430,7 @@ class TestGameEngineMapperDI:
         engine = GameEngine(board, mapper=BoardMapper(50))
         state = GameState(board=board)
         engine.handle_jump(state, 25, 25)
-        assert engine.is_airborne(state, Position(0, 0)) is True
+        assert engine.is_airborne(state, Cell(0, 0)) is True
 
 
 # ===========================================================================
@@ -444,7 +444,7 @@ class TestGameEngineInvalidMove:
         state = GameState(board=board)
         engine.handle_click(state, 0, 0)    # select wR
         engine.handle_click(state, 100, 100)  # diagonal move — invalid for Rook
-        assert board.get_piece_at(Position(0, 0)) == "wR"
+        assert board.get_piece_at(Cell(0, 0)) == "wR"
         assert state.pending == []
 
     def test_invalid_move_clears_selection(self):
@@ -462,7 +462,7 @@ class TestGameEngineInvalidMove:
         state = GameState(board=board)
         engine.handle_click(state, 0, 0)    # select wP
         engine.handle_click(state, 100, 0)  # sideways — illegal for Pawn
-        assert board.get_piece_at(Position(0, 0)) == "wP"
+        assert board.get_piece_at(Cell(0, 0)) == "wP"
         assert engine.selection is None
         assert state.pending == []
 
@@ -478,7 +478,7 @@ class TestGameEngineInvalidMove:
         engine.handle_click(state, 0, 100)  # select wP at (1,0)
         engine.handle_click(state, 0, 0)    # forward move to (0,0)
         assert len(state.pending) == 1
-        assert state.pending[0].to_pos == Position(0, 0)
+        assert state.pending[0].to_pos == Cell(0, 0)
 
     def test_blocked_rook_does_not_queue_move(self):
         # Rook at (0,0), blocker at (0,1), target at (0,2)
@@ -487,7 +487,7 @@ class TestGameEngineInvalidMove:
         state = GameState(board=board)
         engine.handle_click(state, 0, 0)    # select wR
         engine.handle_click(state, 200, 0)  # target (0,2) — path blocked by bP
-        assert board.get_piece_at(Position(0, 0)) == "wR"
+        assert board.get_piece_at(Cell(0, 0)) == "wR"
         assert engine.selection is None
         assert state.pending == []
 
@@ -510,7 +510,7 @@ class TestGameEngineCustomValidator:
         engine.handle_click(state, 0, 0)    # select wP
         engine.handle_click(state, 100, 0)  # normally invalid sideways — but custom says True
         engine.tick(state, engine._move_duration)
-        assert board.get_piece_at(Position(0, 1)) == "wP"
+        assert board.get_piece_at(Cell(0, 1)) == "wP"
 
 
 # ===========================================================================
@@ -523,13 +523,13 @@ class TestIsSelectable:
         board = TextBoard(["wK ."])
         engine = GameEngine(board)
         state = GameState(board=board)
-        assert engine.is_selectable(state, Position(0, 0)) is True
+        assert engine.is_selectable(state, Cell(0, 0)) is True
 
     def test_empty_cell_is_not_selectable(self):
         board = TextBoard(["wK ."])
         engine = GameEngine(board)
         state = GameState(board=board)
-        assert engine.is_selectable(state, Position(0, 1)) is False
+        assert engine.is_selectable(state, Cell(0, 1)) is False
 
     def test_in_transit_piece_is_not_selectable(self):
         board = TextBoard(["wR . ."])
@@ -537,14 +537,14 @@ class TestIsSelectable:
         state = GameState(board=board)
         engine.handle_click(state, 50, 50)
         engine.handle_click(state, 250, 50)
-        assert engine.is_selectable(state, Position(0, 0)) is False
+        assert engine.is_selectable(state, Cell(0, 0)) is False
 
     def test_airborne_piece_is_not_selectable(self):
         board = TextBoard(["wK ."])
         engine = GameEngine(board)
         state = GameState(board=board)
         engine.handle_jump(state, 0, 0)
-        assert engine.is_selectable(state, Position(0, 0)) is False
+        assert engine.is_selectable(state, Cell(0, 0)) is False
 
 
 class TestAttemptMove:
@@ -552,44 +552,44 @@ class TestAttemptMove:
         board = TextBoard(["wR . ."])
         engine = GameEngine(board, move_duration=1000)
         state = GameState(board=board)
-        assert engine.attempt_move(state, Position(0, 0), Position(0, 2)) is True
+        assert engine.attempt_move(state, Cell(0, 0), Cell(0, 2)) is True
         assert len(state.pending) == 1
 
     def test_illegal_move_returns_false_and_does_not_queue(self):
         board = TextBoard(["wR . ."])
         engine = GameEngine(board)
         state = GameState(board=board)
-        assert engine.attempt_move(state, Position(0, 0), Position(1, 1)) is False
+        assert engine.attempt_move(state, Cell(0, 0), Cell(1, 1)) is False
         assert state.pending == []
 
     def test_empty_origin_returns_false(self):
         board = TextBoard([". . ."])
         engine = GameEngine(board)
         state = GameState(board=board)
-        assert engine.attempt_move(state, Position(0, 0), Position(0, 1)) is False
+        assert engine.attempt_move(state, Cell(0, 0), Cell(0, 1)) is False
 
     def test_busy_origin_returns_false(self):
         board = TextBoard(["wR . ."])
         engine = GameEngine(board, move_duration=1000)
         state = GameState(board=board)
-        engine.attempt_move(state, Position(0, 0), Position(0, 1))  # now in transit
-        assert engine.attempt_move(state, Position(0, 0), Position(0, 2)) is False
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 1))  # now in transit
+        assert engine.attempt_move(state, Cell(0, 0), Cell(0, 2)) is False
 
     def test_route_conflict_returns_false(self):
         board = TextBoard(["wR . .", ". . .", "bR . ."])
         engine = GameEngine(board, move_duration=1000)
         state = GameState(board=board)
-        assert engine.attempt_move(state, Position(0, 0), Position(0, 2)) is True
-        assert engine.attempt_move(state, Position(2, 0), Position(2, 2)) is False
+        assert engine.attempt_move(state, Cell(0, 0), Cell(0, 2)) is True
+        assert engine.attempt_move(state, Cell(2, 0), Cell(2, 2)) is False
 
     def test_after_game_over_returns_false(self):
         board = TextBoard(["wR . .", "bK . ."])
         engine = GameEngine(board, move_duration=1000)
         state = GameState(board=board)
-        engine.attempt_move(state, Position(0, 0), Position(1, 0))  # captures bK
+        engine.attempt_move(state, Cell(0, 0), Cell(1, 0))  # captures bK
         engine.tick(state, 1000)
         assert state.game_over is True
-        assert engine.attempt_move(state, Position(1, 0), Position(1, 1)) is False
+        assert engine.attempt_move(state, Cell(1, 0), Cell(1, 1)) is False
 
 
 # ===========================================================================
@@ -603,72 +603,72 @@ class TestTryMove:
         board = TextBoard(["wR . ."])
         engine = GameEngine(board)
         state = GameState(board=board)
-        result = engine.try_move(state, Position(0, 0), Position(0, 2))
+        result = engine.try_move(state, Cell(0, 0), Cell(0, 2))
         assert result == MoveResult.OK
-        assert board.get_piece_at(Position(0, 0)) == "."
-        assert board.get_piece_at(Position(0, 2)) == "wR"
+        assert board.get_piece_at(Cell(0, 0)) == "."
+        assert board.get_piece_at(Cell(0, 2)) == "wR"
 
     def test_no_tick_required_the_move_is_instant(self):
         board = TextBoard(["wR . ."])
         engine = GameEngine(board)
         state = GameState(board=board)
-        engine.try_move(state, Position(0, 0), Position(0, 2))
+        engine.try_move(state, Cell(0, 0), Cell(0, 2))
         assert state.pending == []  # nothing queued — already applied
 
     def test_outside_board_returns_outside_board_and_does_not_mutate(self):
         board = TextBoard(["wR . ."])
         engine = GameEngine(board)
         state = GameState(board=board)
-        result = engine.try_move(state, Position(0, 0), Position(0, 99))
+        result = engine.try_move(state, Cell(0, 0), Cell(0, 99))
         assert result == MoveResult.OUTSIDE_BOARD
-        assert board.get_piece_at(Position(0, 0)) == "wR"
+        assert board.get_piece_at(Cell(0, 0)) == "wR"
 
     def test_empty_source_returns_empty_source(self):
         board = TextBoard([". . ."])
         engine = GameEngine(board)
         state = GameState(board=board)
-        result = engine.try_move(state, Position(0, 0), Position(0, 1))
+        result = engine.try_move(state, Cell(0, 0), Cell(0, 1))
         assert result == MoveResult.EMPTY_SOURCE
 
     def test_illegal_pattern_returns_illegal_pattern_and_does_not_mutate(self):
         board = TextBoard(["wR . .", ". . .", ". . ."])
         engine = GameEngine(board)
         state = GameState(board=board)
-        result = engine.try_move(state, Position(0, 0), Position(2, 2))
+        result = engine.try_move(state, Cell(0, 0), Cell(2, 2))
         assert result == MoveResult.ILLEGAL_PATTERN
-        assert board.get_piece_at(Position(0, 0)) == "wR"
+        assert board.get_piece_at(Cell(0, 0)) == "wR"
 
     def test_friendly_fire_returns_friendly_fire(self):
         board = TextBoard(["wR wN ."])
         engine = GameEngine(board)
         state = GameState(board=board)
-        result = engine.try_move(state, Position(0, 0), Position(0, 1))
+        result = engine.try_move(state, Cell(0, 0), Cell(0, 1))
         assert result == MoveResult.FRIENDLY_FIRE
-        assert board.get_piece_at(Position(0, 1)) == "wN"
+        assert board.get_piece_at(Cell(0, 1)) == "wN"
 
     def test_blocked_path_returns_blocked_path(self):
         board = TextBoard(["wR bN . ."])
         engine = GameEngine(board)
         state = GameState(board=board)
-        result = engine.try_move(state, Position(0, 0), Position(0, 3))
+        result = engine.try_move(state, Cell(0, 0), Cell(0, 3))
         assert result == MoveResult.BLOCKED_PATH
 
     def test_capture_is_ok_and_removes_the_enemy(self):
         board = TextBoard(["wR bN ."])
         engine = GameEngine(board)
         state = GameState(board=board)
-        result = engine.try_move(state, Position(0, 0), Position(0, 1))
+        result = engine.try_move(state, Cell(0, 0), Cell(0, 1))
         assert result == MoveResult.OK
-        assert board.get_piece_at(Position(0, 1)) == "wR"
+        assert board.get_piece_at(Cell(0, 1)) == "wR"
 
     def test_after_game_over_returns_game_over_and_does_not_mutate(self):
         board = TextBoard(["wR . .", "bK . ."])
         engine = GameEngine(board)
         state = GameState(board=board)
-        engine.try_move(state, Position(0, 0), Position(1, 0))  # captures bK, ends game
+        engine.try_move(state, Cell(0, 0), Cell(1, 0))  # captures bK, ends game
         assert state.game_over is True
         before = board.get_rows()
-        result = engine.try_move(state, Position(1, 0), Position(1, 1))
+        result = engine.try_move(state, Cell(1, 0), Cell(1, 1))
         assert result == MoveResult.GAME_OVER
         assert board.get_rows() == before
 
@@ -676,7 +676,7 @@ class TestTryMove:
         board = TextBoard(["wR . .", "bK . ."])
         engine = GameEngine(board)
         state = GameState(board=board)
-        result = engine.try_move(state, Position(0, 0), Position(1, 0))
+        result = engine.try_move(state, Cell(0, 0), Cell(1, 0))
         assert result == MoveResult.OK
         assert state.game_over is True
         assert state.winner is not None
@@ -685,9 +685,9 @@ class TestTryMove:
         board = TextBoard([". .", "wP ."])
         engine = GameEngine(board)
         state = GameState(board=board)
-        result = engine.try_move(state, Position(1, 0), Position(0, 0))
+        result = engine.try_move(state, Cell(1, 0), Cell(0, 0))
         assert result == MoveResult.OK
-        assert board.get_piece_at(Position(0, 0)) == "wQ"
+        assert board.get_piece_at(Cell(0, 0)) == "wQ"
 
     def test_move_completed_event_fires_with_current_time_as_arrival(self):
         board = TextBoard(["wR . ."])
@@ -696,19 +696,19 @@ class TestTryMove:
         obs = _RecordingObserver()
         engine.add_observer(obs)
         engine.tick(state, 250)  # advance the clock first
-        engine.try_move(state, Position(0, 0), Position(0, 1))
+        engine.try_move(state, Cell(0, 0), Cell(0, 1))
         completed = [e for e in obs.events if isinstance(e, MoveCompletedEvent)]
         assert len(completed) == 1
         assert completed[0].piece == "wR"
-        assert completed[0].from_pos == Position(0, 0)
-        assert completed[0].to_pos == Position(0, 1)
+        assert completed[0].from_pos == Cell(0, 0)
+        assert completed[0].to_pos == Cell(0, 1)
         assert completed[0].arrival_time == 250
 
     def test_does_not_queue_a_pending_move_on_success(self):
         board = TextBoard(["wR . ."])
         engine = GameEngine(board)
         state = GameState(board=board)
-        engine.try_move(state, Position(0, 0), Position(0, 1))
+        engine.try_move(state, Cell(0, 0), Cell(0, 1))
         assert state.pending == []
 
     def test_ignores_busy_state_unlike_attempt_move(self):
@@ -717,12 +717,12 @@ class TestTryMove:
         board = TextBoard(["wR . ."])
         engine = GameEngine(board, move_duration=1000)
         state = GameState(board=board)
-        engine.attempt_move(state, Position(0, 0), Position(0, 1))  # now "in transit"
-        assert engine.is_in_transit(state, Position(0, 0)) is True
-        result = engine.try_move(state, Position(0, 0), Position(0, 2))
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 1))  # now "in transit"
+        assert engine.is_in_transit(state, Cell(0, 0)) is True
+        result = engine.try_move(state, Cell(0, 0), Cell(0, 2))
         assert result == MoveResult.OK
-        assert board.get_piece_at(Position(0, 0)) == "."
-        assert board.get_piece_at(Position(0, 2)) == "wR"
+        assert board.get_piece_at(Cell(0, 0)) == "."
+        assert board.get_piece_at(Cell(0, 2)) == "wR"
 
     def test_custom_rule_engine_is_used(self):
         from engine.rule_engine import RuleEngine as _RuleEngine
@@ -734,6 +734,6 @@ class TestTryMove:
         board = TextBoard(["wR . ."])
         engine = GameEngine(board, rule_engine=_AlwaysIllegal())
         state = GameState(board=board)
-        result = engine.try_move(state, Position(0, 0), Position(0, 1))
+        result = engine.try_move(state, Cell(0, 0), Cell(0, 1))
         assert result == MoveResult.ILLEGAL_PATTERN
-        assert board.get_piece_at(Position(0, 0)) == "wR"
+        assert board.get_piece_at(Cell(0, 0)) == "wR"

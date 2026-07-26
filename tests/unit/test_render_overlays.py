@@ -32,8 +32,8 @@ from asset_loader import AssetLoader  # noqa: E402
 from graphics_board_renderer import GraphicsBoardRenderer  # noqa: E402
 from img import Img  # noqa: E402
 
-from core.models import Position  # noqa: E402
-from engine.board import TextBoard  # noqa: E402
+from shared.models.cell import Cell  # noqa: E402
+from shared.models.board import TextBoard  # noqa: E402
 from engine.game import GameEngine  # noqa: E402
 from engine.game_state import GameState  # noqa: E402
 from engine.snapshot import GameSnapshot, PieceSnapshot  # noqa: E402
@@ -71,7 +71,7 @@ class TestDrawOverlayLabel:
         img = _blank_img()
         before = img.img.copy()
         piece = PieceSnapshot.from_piece(
-            "wK", Position(0, 0), is_in_cooldown=True, cooldown_remaining_ms=700
+            "wK", Cell(0, 0), is_in_cooldown=True, cooldown_remaining_ms=700
         )
 
         renderer._draw_overlay_label(img, piece, False, 10, 30)
@@ -82,7 +82,7 @@ class TestDrawOverlayLabel:
         renderer = _renderer()
         img = _blank_img()
         before = img.img.copy()
-        piece = PieceSnapshot.from_piece("wK", Position(0, 0))  # cooldown_remaining_ms=None
+        piece = PieceSnapshot.from_piece("wK", Cell(0, 0))  # cooldown_remaining_ms=None
 
         renderer._draw_overlay_label(img, piece, False, 10, 30)
 
@@ -107,7 +107,7 @@ class TestDrawOverlayLabel:
         img = _blank_img()
         before = img.img.copy()
         piece = PieceSnapshot.from_piece(
-            "wK", Position(0, 0), is_in_cooldown=False, cooldown_remaining_ms=None
+            "wK", Cell(0, 0), is_in_cooldown=False, cooldown_remaining_ms=None
         )
 
         renderer._draw_overlay_label(img, piece, False, 10, 30)
@@ -127,7 +127,7 @@ class TestRenderWiresSelectionCorrectly:
         )
 
         screen = Img()
-        renderer.render(GameSnapshot.from_state(state), screen, selected=Position(0, 0))
+        renderer.render(GameSnapshot.from_state(state), screen, selected=Cell(0, 0))
 
         assert len(calls) == 2  # one per occupied cell (wK, bK)
         assert calls.count(True) == 1
@@ -162,6 +162,6 @@ class TestRenderWiresSelectionCorrectly:
         renderer._draw_overlay_label = _record
 
         screen = Img()
-        renderer.render(GameSnapshot.from_state(state), screen, selected=Position(0, 2))
+        renderer.render(GameSnapshot.from_state(state), screen, selected=Cell(0, 2))
 
-        assert positions_marked_selected == [Position(0, 2)]
+        assert positions_marked_selected == [Cell(0, 2)]

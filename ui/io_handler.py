@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Callable, List, TextIO
 
-from engine.board import AbstractBoard
+from shared.models.board import AbstractBoard
 from engine.board_validator import BoardValidator
 from engine.game import GameEngine
 from engine.game_state import GameState

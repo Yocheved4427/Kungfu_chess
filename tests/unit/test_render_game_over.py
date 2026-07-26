@@ -28,8 +28,8 @@ from asset_loader import AssetLoader  # noqa: E402
 from graphics_board_renderer import GraphicsBoardRenderer  # noqa: E402
 from img import Img  # noqa: E402
 
-from core.models import Color  # noqa: E402
-from engine.board import TextBoard  # noqa: E402
+from shared.models.color import Color  # noqa: E402
+from shared.models.board import TextBoard  # noqa: E402
 from engine.game_state import GameState  # noqa: E402
 from engine.snapshot import GameSnapshot  # noqa: E402
 from input.board_mapper import BoardMapper  # noqa: E402

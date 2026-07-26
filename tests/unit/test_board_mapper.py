@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.models import Position
+from shared.models.cell import Cell
 from input.board_mapper import BoardMapper
 
 
@@ -33,21 +33,21 @@ class TestPixelToCell:
         self.mapper = BoardMapper(100)
 
     def test_origin_maps_to_row0_col0(self):
-        assert self.mapper.pixel_to_cell(0, 0) == Position(0, 0)
+        assert self.mapper.pixel_to_cell(0, 0) == Cell(0, 0)
 
     def test_inside_first_cell_still_maps_to_row0_col0(self):
-        assert self.mapper.pixel_to_cell(50, 50) == Position(0, 0)
+        assert self.mapper.pixel_to_cell(50, 50) == Cell(0, 0)
 
     def test_exact_cell_boundary_rounds_down_to_next_cell(self):
-        assert self.mapper.pixel_to_cell(100, 0) == Position(0, 1)
-        assert self.mapper.pixel_to_cell(0, 100) == Position(1, 0)
+        assert self.mapper.pixel_to_cell(100, 0) == Cell(0, 1)
+        assert self.mapper.pixel_to_cell(0, 100) == Cell(1, 0)
 
     def test_x_controls_column_y_controls_row(self):
-        assert self.mapper.pixel_to_cell(350, 150) == Position(row=1, col=3)
+        assert self.mapper.pixel_to_cell(350, 150) == Cell(row=1, col=3)
 
     def test_different_cell_size(self):
         mapper = BoardMapper(50)
-        assert mapper.pixel_to_cell(125, 175) == Position(row=3, col=2)
+        assert mapper.pixel_to_cell(125, 175) == Cell(row=3, col=2)
 
 
 class TestCellToPixel:
@@ -70,7 +70,7 @@ class TestRoundTrip:
         mapper = BoardMapper(100)
         for row, col in [(0, 0), (2, 5), (7, 7)]:
             x, y = mapper.cell_to_pixel(row, col)
-            assert mapper.pixel_to_cell(x, y) == Position(row, col)
+            assert mapper.pixel_to_cell(x, y) == Cell(row, col)
 
     def test_round_trips_correctly_at_a_custom_cell_size(self):
         """Same identity, but at a cell size that doesn't match any
@@ -80,7 +80,7 @@ class TestRoundTrip:
         mapper = BoardMapper(37)
         for row, col in [(0, 0), (2, 5), (7, 7), (3, 1)]:
             x, y = mapper.cell_to_pixel(row, col)
-            assert mapper.pixel_to_cell(x, y) == Position(row, col)
+            assert mapper.pixel_to_cell(x, y) == Cell(row, col)
 
 
 class TestFromBoardPixels:
@@ -116,7 +116,7 @@ class TestFromBoardPixels:
         mapper = BoardMapper.from_board_pixels(
             board_width_px=800, board_height_px=800, num_cols=8, num_rows=8
         )
-        assert mapper.pixel_to_cell(350, 50) == Position(row=0, col=3)
+        assert mapper.pixel_to_cell(350, 50) == Cell(row=0, col=3)
 
 
 class TestPixelOffset:
@@ -128,7 +128,7 @@ class TestPixelOffset:
     def test_defaults_to_zero_unchanged_from_before_offsets_existed(self):
         mapper = BoardMapper(100)
         assert mapper.cell_to_pixel(0, 0) == (0, 0)
-        assert mapper.pixel_to_cell(0, 0) == Position(0, 0)
+        assert mapper.pixel_to_cell(0, 0) == Cell(0, 0)
 
     def test_cell_to_pixel_shifts_by_the_offset(self):
         mapper = BoardMapper(100, x_offset=50, y_offset=30)
@@ -137,15 +137,15 @@ class TestPixelOffset:
 
     def test_pixel_to_cell_shifts_by_the_offset(self):
         mapper = BoardMapper(100, x_offset=50, y_offset=30)
-        assert mapper.pixel_to_cell(50, 30) == Position(0, 0)
-        assert mapper.pixel_to_cell(60, 40) == Position(0, 0)  # still inside the cell
-        assert mapper.pixel_to_cell(150, 30) == Position(0, 1)
+        assert mapper.pixel_to_cell(50, 30) == Cell(0, 0)
+        assert mapper.pixel_to_cell(60, 40) == Cell(0, 0)  # still inside the cell
+        assert mapper.pixel_to_cell(150, 30) == Cell(0, 1)
 
     def test_round_trip_holds_with_an_offset(self):
         mapper = BoardMapper(100, x_offset=50, y_offset=30)
         for row, col in [(0, 0), (2, 5), (7, 7)]:
             x, y = mapper.cell_to_pixel(row, col)
-            assert mapper.pixel_to_cell(x, y) == Position(row, col)
+            assert mapper.pixel_to_cell(x, y) == Cell(row, col)
 
     def test_a_click_before_the_offset_maps_out_of_bounds(self):
         """A click landing in the margin/panel region reserved before

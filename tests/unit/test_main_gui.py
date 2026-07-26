@@ -27,8 +27,9 @@ from __future__ import annotations
 
 import argparse
 
-from core.models import Color, Position
-from engine.board import AbstractBoard, TextBoard
+from shared.models.color import Color
+from shared.models.cell import Cell
+from shared.models.board import AbstractBoard, TextBoard
 from engine.game import GameEngine
 from engine.game_state import GameState
 from input.board_mapper import BoardMapper
@@ -237,8 +238,8 @@ class TestNewGame:
         assert state1.board is not state2.board
 
         # Mutating one game's board must not affect the other's.
-        state1.board.set_piece_at(Position(0, 0), ".")
-        assert state2.board.get_piece_at(Position(0, 0)) != "."
+        state1.board.set_piece_at(Cell(0, 0), ".")
+        assert state2.board.get_piece_at(Cell(0, 0)) != "."
 
     def test_a_fresh_engine_correctly_detects_the_new_games_own_king_loss(self):
         """The concrete regression this helper exists to prevent: build
@@ -257,7 +258,7 @@ class TestNewGame:
         stale_board = TextBoard(["wR . .", "bK . ."])
         stale_engine = GameEngine(stale_board, cell_size=100)
         stale_state = GameState(board=stale_board)
-        stale_engine.try_move(stale_state, Position(0, 0), Position(1, 0))  # captures bK
+        stale_engine.try_move(stale_state, Cell(0, 0), Cell(1, 0))  # captures bK
         assert stale_state.game_over is True
         assert stale_engine._game_over_rule._white_armed is False  # White never had a king
 
@@ -265,7 +266,7 @@ class TestNewGame:
         assert fresh_state.game_over is False  # standard board, game just started
 
         # White's King is genuinely captured in THIS fresh game.
-        fresh_state.board.set_piece_at(Position(7, 4), ".")
+        fresh_state.board.set_piece_at(Cell(7, 4), ".")
         result = fresh_engine._game_over_rule.check(fresh_state.board)
         assert result.is_over is True
         assert result.winner is Color.BLACK

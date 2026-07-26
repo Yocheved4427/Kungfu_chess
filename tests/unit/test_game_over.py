@@ -23,8 +23,10 @@ from __future__ import annotations
 
 from typing import List
 
-from core.models import Color, GameResult, Position
-from engine.board import TextBoard
+from shared.models.color import Color
+from shared.models.cell import Cell
+from core.models import GameResult
+from shared.models.board import TextBoard
 from engine.game import GameEngine
 from engine.game_over import GameOverRule, KingCaptureRule
 from engine.game_state import GameState
@@ -155,7 +157,7 @@ class TestGameOverEndsTheGame:
         completed = obs.of_type(MoveCompletedEvent)
         assert len(completed) == 1
         assert completed[0].piece == "wR"
-        assert completed[0].to_pos == Position(2, 0)
+        assert completed[0].to_pos == Cell(2, 0)
 
 
 class TestGameOverBlocksLaterClicks:
@@ -215,7 +217,7 @@ class TestGameOverRuleIsNotArmedWithoutBothKings:
         engine.handle_click(state, 100, 0)
         engine.tick(state, 500)
         assert state.game_over is False
-        assert state.board.get_piece_at(Position(0, 1)) == "wK"
+        assert state.board.get_piece_at(Cell(0, 1)) == "wK"
 
     def test_board_with_no_kings_at_all_never_ends_the_game(self):
         board = TextBoard(["wR . .", ". . .", "bR . ."])
@@ -225,7 +227,7 @@ class TestGameOverRuleIsNotArmedWithoutBothKings:
         engine.handle_click(state, 0, 200)  # wR (0,0) captures bR (2,0)
         engine.tick(state, 2000)
         assert state.game_over is False
-        assert state.board.get_piece_at(Position(2, 0)) == "wR"
+        assert state.board.get_piece_at(Cell(2, 0)) == "wR"
 
     def test_clicks_still_work_normally_on_a_kingless_board(self):
         board = TextBoard(["wR . .", ". . .", ". . ."])

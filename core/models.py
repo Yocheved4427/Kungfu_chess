@@ -1,21 +1,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Tuple
+
+from shared.models.cell import Cell
+from shared.models.color import Color
 
 # ---------------------------------------------------------------------------
 # Kung Fu Chess – Core domain models
 # ---------------------------------------------------------------------------
 # Pure value objects: no business logic, no I/O, no side-effects.
 # All types are frozen so they are safely hashable and immutable.
+#
+# Color and Cell (this module's own Position, before the shared/
+# extraction) now live in shared.models.color / shared.models.cell —
+# re-imported here because everything below still builds directly on
+# top of them (MoveRequest/PendingMove/etc. all reference a Cell).
+# Nothing here re-exports them under a "Position" alias — every consumer
+# of the old name has been updated to import Cell from shared.models.cell
+# directly instead.
 # ---------------------------------------------------------------------------
-
-
-class Color(Enum):
-    """Piece colour encoded as the leading character of a board token."""
-    WHITE = "w"
-    BLACK = "b"
 
 
 def same_color(piece_a: str | None, piece_b: str | None) -> bool:
@@ -33,21 +37,14 @@ def same_color(piece_a: str | None, piece_b: str | None) -> bool:
 
 
 @dataclass(frozen=True)
-class Position:
-    """An (row, col) cell address on the board.  Immutable value object."""
-    row: int
-    col: int
-
-
-@dataclass(frozen=True)
 class MoveRequest:
     """Value object representing a requested piece move.
 
     Issued by the engine when a selection is committed.  Carries no state
     and triggers no side-effects.
     """
-    from_pos: Position
-    to_pos: Position
+    from_pos: Cell
+    to_pos: Cell
 
 
 @dataclass(frozen=True)
@@ -61,7 +58,7 @@ class MoveCheckpoint:
     same per-cell timing also lets the UI interpolate a piece's on-screen
     position smoothly instead of teleporting it at the very end.
     """
-    pos: Position
+    pos: Cell
     due_time: int
 
 
@@ -106,8 +103,8 @@ class PendingMove:
                        only its checkpoint cursor advances.
     """
     piece: str
-    from_pos: Position
-    to_pos: Position
+    from_pos: Cell
+    to_pos: Cell
     arrival_time: int
     start_time: int = 0
     checkpoints: Tuple[MoveCheckpoint, ...] = ()
@@ -127,7 +124,7 @@ class PendingJump:
                     provided no enemy arrived at ``pos`` during the jump.
     """
     piece: str
-    pos: Position
+    pos: Cell
     land_time: int
 
 

@@ -12,8 +12,9 @@ from graphics_board_renderer import GraphicsBoardRenderer
 from img import Img
 
 from controllers.click_controller import ClickController
-from core.models import Color, Position
-from engine.board import AbstractBoard, TextBoard
+from shared.models.color import Color
+from shared.models.cell import Cell
+from shared.models.board import AbstractBoard, TextBoard
 from engine.game import GameEngine
 from engine.game_state import GameState
 from engine.move_history_tracker import MoveHistoryTracker
@@ -64,7 +65,7 @@ class _OwnColorClickController:
         self._own_color = own_color
 
     @property
-    def selection(self) -> "Position | None":
+    def selection(self) -> "Cell | None":
         return self._controller.selection
 
     def handle_click(self, state: GameState, x: int, y: int) -> None:
@@ -327,7 +328,7 @@ class _NetworkClickController:
     def __init__(self, mapper: BoardMapper, own_color: Color) -> None:
         self._mapper = mapper
         self._own_color = own_color
-        self.selection: Position | None = None
+        self.selection: Cell | None = None
 
     def handle_click(self, board: AbstractBoard, x: int, y: int, network_client: NetworkClient) -> None:
         pos = self._mapper.pixel_to_cell(x, y)
