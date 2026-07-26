@@ -11,6 +11,7 @@ from shared.models.board import AbstractBoard
 from engine.board_renderer import BoardRenderer, TextBoardRenderer
 from engine.game_over import GameOverRule, KingCaptureRule
 from engine.game_state import GameState
+from engine.promotion import is_promotion, promoted_piece
 from engine.rule_engine import MoveResult, RuleEngine
 from engine.rules import MoveValidator
 from input.board_mapper import BoardMapper
@@ -697,17 +698,15 @@ class GameEngine:
     def _maybe_promote(self, state: GameState, piece: str, pos: Cell) -> None:
         """Promote a Pawn to a Queen the instant it reaches the back rank.
 
-        White promotes on row 0 (the row it advances toward); Black on
-        ``num_rows - 1`` — the mirror image, matching the direction
-        convention in ``PawnRule``. Applies regardless of how the pawn
-        got there (straight advance or diagonal capture); a non-Pawn is
-        untouched.
+        Applies regardless of how the pawn got there (straight advance
+        or diagonal capture); a non-Pawn is untouched. The actual
+        row/piece-type decision lives in ``engine.promotion`` (shared
+        with server/game/rules, a facade layer over this module) —
+        this just applies the board mutation once that decision says
+        yes.
         """
-        if piece[1] != "P":
-            return
-        last_row = 0 if piece[0] == "w" else state.board.num_rows - 1
-        if pos.row == last_row:
-            state.board.set_piece_at(pos, piece[0] + "Q")
+        if is_promotion(piece, pos, state.board.num_rows):
+            state.board.set_piece_at(pos, promoted_piece(piece))
 
     def _capture_just_ended_the_game(self, state: GameState) -> bool:
         """True iff *state*'s board, as it stands right now, already
