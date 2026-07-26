@@ -26,7 +26,8 @@ import json
 
 import pytest
 
-from core.models import Color, Position
+from shared.models.color import Color
+from shared.models.cell import Cell
 from server.server import MAX_USERNAME_LENGTH, GameServer
 
 
@@ -377,8 +378,8 @@ class TestFullMoveRoundTrip:
         server.engine.tick(server.state, 1000)
 
         # The move actually landed on the board.
-        assert server.board.get_piece_at(Position(row=3, col=4)) == "bP"  # e5
-        assert server.board.get_piece_at(Position(row=1, col=4)) == "."   # e7, now empty
+        assert server.board.get_piece_at(Cell(row=3, col=4)) == "bP"  # e5
+        assert server.board.get_piece_at(Cell(row=1, col=4)) == "."   # e7, now empty
 
         # And was broadcast as a serialized MoveCompletedEvent via the Bus.
         broadcast_types = []

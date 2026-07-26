@@ -8,8 +8,8 @@ a single shared implementation replaced two duplicated ones.
 
 from __future__ import annotations
 
-from core.models import Position
-from engine.board import TextBoard
+from shared.models.cell import Cell
+from shared.models.board import TextBoard
 from engine.geometry import (
     is_diagonal,
     is_king_step,
@@ -27,67 +27,67 @@ def _b(*rows: str) -> TextBoard:
 
 class TestIsOrthogonal:
     def test_horizontal_is_orthogonal(self):
-        assert is_orthogonal(Position(0, 0), Position(0, 3)) is True
+        assert is_orthogonal(Cell(0, 0), Cell(0, 3)) is True
 
     def test_vertical_is_orthogonal(self):
-        assert is_orthogonal(Position(0, 0), Position(5, 0)) is True
+        assert is_orthogonal(Cell(0, 0), Cell(5, 0)) is True
 
     def test_diagonal_is_not_orthogonal(self):
-        assert is_orthogonal(Position(0, 0), Position(3, 3)) is False
+        assert is_orthogonal(Cell(0, 0), Cell(3, 3)) is False
 
     def test_same_position_is_not_orthogonal(self):
-        assert is_orthogonal(Position(2, 2), Position(2, 2)) is False
+        assert is_orthogonal(Cell(2, 2), Cell(2, 2)) is False
 
     def test_knight_shape_is_not_orthogonal(self):
-        assert is_orthogonal(Position(0, 0), Position(1, 2)) is False
+        assert is_orthogonal(Cell(0, 0), Cell(1, 2)) is False
 
 
 class TestIsDiagonal:
     def test_diagonal_is_diagonal(self):
-        assert is_diagonal(Position(0, 0), Position(3, 3)) is True
+        assert is_diagonal(Cell(0, 0), Cell(3, 3)) is True
 
     def test_reverse_diagonal_is_diagonal(self):
-        assert is_diagonal(Position(3, 0), Position(0, 3)) is True
+        assert is_diagonal(Cell(3, 0), Cell(0, 3)) is True
 
     def test_orthogonal_is_not_diagonal(self):
-        assert is_diagonal(Position(0, 0), Position(0, 3)) is False
+        assert is_diagonal(Cell(0, 0), Cell(0, 3)) is False
 
     def test_uneven_deltas_are_not_diagonal(self):
-        assert is_diagonal(Position(0, 0), Position(1, 2)) is False
+        assert is_diagonal(Cell(0, 0), Cell(1, 2)) is False
 
     def test_same_position_is_not_diagonal(self):
-        assert is_diagonal(Position(1, 1), Position(1, 1)) is False
+        assert is_diagonal(Cell(1, 1), Cell(1, 1)) is False
 
 
 class TestIsKnightShape:
     def test_two_by_one_is_knight_shape(self):
-        assert is_knight_shape(Position(2, 2), Position(0, 1)) is True
+        assert is_knight_shape(Cell(2, 2), Cell(0, 1)) is True
 
     def test_one_by_two_is_knight_shape(self):
-        assert is_knight_shape(Position(2, 2), Position(1, 4)) is True
+        assert is_knight_shape(Cell(2, 2), Cell(1, 4)) is True
 
     def test_straight_line_is_not_knight_shape(self):
-        assert is_knight_shape(Position(0, 0), Position(0, 2)) is False
+        assert is_knight_shape(Cell(0, 0), Cell(0, 2)) is False
 
     def test_diagonal_is_not_knight_shape(self):
-        assert is_knight_shape(Position(0, 0), Position(2, 2)) is False
+        assert is_knight_shape(Cell(0, 0), Cell(2, 2)) is False
 
 
 class TestIsKingStep:
     def test_one_step_orthogonal_is_a_king_step(self):
-        assert is_king_step(Position(1, 1), Position(1, 2)) is True
+        assert is_king_step(Cell(1, 1), Cell(1, 2)) is True
 
     def test_one_step_diagonal_is_a_king_step(self):
-        assert is_king_step(Position(1, 1), Position(2, 2)) is True
+        assert is_king_step(Cell(1, 1), Cell(2, 2)) is True
 
     def test_two_steps_is_not_a_king_step(self):
-        assert is_king_step(Position(0, 0), Position(0, 2)) is False
+        assert is_king_step(Cell(0, 0), Cell(0, 2)) is False
 
     def test_knight_shape_is_not_a_king_step(self):
-        assert is_king_step(Position(0, 0), Position(1, 2)) is False
+        assert is_king_step(Cell(0, 0), Cell(1, 2)) is False
 
     def test_same_position_is_not_a_king_step(self):
-        assert is_king_step(Position(1, 1), Position(1, 1)) is False
+        assert is_king_step(Cell(1, 1), Cell(1, 1)) is False
 
 
 class TestPawnDirection:
@@ -113,43 +113,43 @@ class TestPawnStartRow:
 class TestPathClear:
     def test_adjacent_cells_are_always_clear(self):
         board = _b("wR .")
-        assert path_clear(board, Position(0, 0), Position(0, 1)) is True
+        assert path_clear(board, Cell(0, 0), Cell(0, 1)) is True
 
     def test_clear_horizontal_path(self):
         board = _b("wR . . .")
-        assert path_clear(board, Position(0, 0), Position(0, 3)) is True
+        assert path_clear(board, Cell(0, 0), Cell(0, 3)) is True
 
     def test_blocked_by_first_intermediate_square(self):
         board = _b("wR bP . .")
-        assert path_clear(board, Position(0, 0), Position(0, 3)) is False
+        assert path_clear(board, Cell(0, 0), Cell(0, 3)) is False
 
     def test_blocked_by_last_intermediate_square(self):
         board = _b("wR . bP .")
-        assert path_clear(board, Position(0, 0), Position(0, 3)) is False
+        assert path_clear(board, Cell(0, 0), Cell(0, 3)) is False
 
     def test_occupied_destination_does_not_count_as_blocked(self):
         """path_clear only checks squares STRICTLY between from and to —
         the destination's own content is a separate (friendly-fire)
         concern for the caller."""
         board = _b("wR . bN")
-        assert path_clear(board, Position(0, 0), Position(0, 2)) is True
+        assert path_clear(board, Cell(0, 0), Cell(0, 2)) is True
 
     def test_clear_vertical_path(self):
         board = _b("wR . .", ". . .", ". . .")
-        assert path_clear(board, Position(0, 0), Position(2, 0)) is True
+        assert path_clear(board, Cell(0, 0), Cell(2, 0)) is True
 
     def test_blocked_vertical_path(self):
         board = _b("wR . .", "bN . .", ". . .")
-        assert path_clear(board, Position(0, 0), Position(2, 0)) is False
+        assert path_clear(board, Cell(0, 0), Cell(2, 0)) is False
 
     def test_clear_diagonal_path(self):
         board = _b("wB . . .", ". . . .", ". . . .", ". . . .")
-        assert path_clear(board, Position(0, 0), Position(3, 3)) is True
+        assert path_clear(board, Cell(0, 0), Cell(3, 3)) is True
 
     def test_blocked_diagonal_path(self):
         board = _b("wB . . .", ". bN . .", ". . . .")
-        assert path_clear(board, Position(0, 0), Position(2, 2)) is False
+        assert path_clear(board, Cell(0, 0), Cell(2, 2)) is False
 
     def test_reverse_direction_is_symmetric(self):
         board = _b("wR bN . .")
-        assert path_clear(board, Position(0, 3), Position(0, 0)) is False
+        assert path_clear(board, Cell(0, 3), Cell(0, 0)) is False

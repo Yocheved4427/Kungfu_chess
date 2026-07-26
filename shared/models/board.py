@@ -3,15 +3,21 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List
 
-from core.models import Color, Position
+from shared.models.cell import Cell
+from shared.models.color import Color
 
 # ---------------------------------------------------------------------------
 # Kung Fu Chess – Board representation
 # ---------------------------------------------------------------------------
-# AbstractBoard / TextBoard  – pure logical board state: which piece (if
-# any) occupies which (row, col) cell, and mutating that. Nothing here
-# knows about pixels, screen coordinates, mouse clicks, rendering/display,
-# or animation — those are separate concerns, kept in separate components:
+# Moved here from engine.board (Iteration: shared/ extraction) — same
+# AbstractBoard/TextBoard classes, same behaviour, retyped to use
+# shared.models.cell.Cell (renamed from core.models.Position — see that
+# module's own header for why row/col was kept over x/y).
+#
+# Pure logical board state: which piece (if any) occupies which
+# (row, col) cell, and mutating that. Nothing here knows about pixels,
+# screen coordinates, mouse clicks, rendering/display, or animation —
+# those are separate concerns, kept in separate components:
 #   * Pixel <-> cell translation and click/jump handling: engine.game.GameEngine.
 #   * Turning board state into a displayable form: engine.board_renderer.
 #
@@ -54,22 +60,22 @@ class AbstractBoard(ABC):
         """Total number of files (columns)."""
 
     @abstractmethod
-    def get_piece_at(self, pos: Position) -> str | None:
+    def get_piece_at(self, pos: Cell) -> str | None:
         """Return the token at *pos* (e.g. ``"wK"``, ``"."``) or ``None`` if OOB."""
 
     @abstractmethod
-    def move_piece(self, from_pos: Position, to_pos: Position) -> None:
+    def move_piece(self, from_pos: Cell, to_pos: Cell) -> None:
         """Move the piece at *from_pos* to *to_pos*, leaving *from_pos* empty."""
 
     @abstractmethod
-    def set_piece_at(self, pos: Position, piece: str) -> None:
+    def set_piece_at(self, pos: Cell, piece: str) -> None:
         """Overwrite the token at *pos* with *piece* (e.g. for promotion).
 
         Unlike ``move_piece`` this touches only a single cell — no origin
         is emptied.
         """
 
-    def get_color_at(self, pos: Position) -> Color | None:
+    def get_color_at(self, pos: Cell) -> Color | None:
         """Return the Color at *pos*, or ``None`` for empty / out-of-bounds."""
         piece = self.get_piece_at(pos)
         if piece is None or piece == ".":
@@ -80,7 +86,7 @@ class AbstractBoard(ABC):
             return Color.BLACK
         return None
 
-    def contains(self, pos: Position) -> bool:
+    def contains(self, pos: Cell) -> bool:
         """Return True iff *pos* is a real cell on this board.
 
         The single shared bounds check — callers (ClickController,
@@ -120,7 +126,7 @@ class TextBoard(AbstractBoard):
     def num_cols(self) -> int:
         return len(self._rows[0].split()) if self._rows else 0
 
-    def get_piece_at(self, pos: Position) -> str | None:
+    def get_piece_at(self, pos: Cell) -> str | None:
         if pos.row < 0 or pos.row >= self.num_rows:
             return None
         tokens = self._rows[pos.row].split()
@@ -128,7 +134,7 @@ class TextBoard(AbstractBoard):
             return None
         return tokens[pos.col]
 
-    def move_piece(self, from_pos: Position, to_pos: Position) -> None:
+    def move_piece(self, from_pos: Cell, to_pos: Cell) -> None:
         if from_pos == to_pos:
             return
         from_tokens = self._rows[from_pos.row].split()
@@ -144,8 +150,7 @@ class TextBoard(AbstractBoard):
             self._rows[from_pos.row] = " ".join(from_tokens)
             self._rows[to_pos.row] = " ".join(to_tokens)
 
-    def set_piece_at(self, pos: Position, piece: str) -> None:
+    def set_piece_at(self, pos: Cell, piece: str) -> None:
         tokens = self._rows[pos.row].split()
         tokens[pos.col] = piece
         self._rows[pos.row] = " ".join(tokens)
-

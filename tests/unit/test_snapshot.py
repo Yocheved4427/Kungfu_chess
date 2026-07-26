@@ -17,8 +17,10 @@ import dataclasses
 
 import pytest
 
-from core.models import Color, PendingJump, PendingMove, Position
-from engine.board import TextBoard
+from shared.models.color import Color
+from shared.models.cell import Cell
+from core.models import PendingJump, PendingMove
+from shared.models.board import TextBoard
 from engine.game import GameEngine
 from engine.game_state import GameState
 from engine.snapshot import BoardSnapshot, GameSnapshot, PieceSnapshot
@@ -26,32 +28,32 @@ from engine.snapshot import BoardSnapshot, GameSnapshot, PieceSnapshot
 
 class TestPieceSnapshotFromPiece:
     def test_decodes_white_piece(self):
-        snap = PieceSnapshot.from_piece("wK", Position(0, 4))
+        snap = PieceSnapshot.from_piece("wK", Cell(0, 4))
         assert snap.color is Color.WHITE
         assert snap.kind == "K"
-        assert snap.position == Position(0, 4)
+        assert snap.position == Cell(0, 4)
 
     def test_decodes_black_piece(self):
-        snap = PieceSnapshot.from_piece("bP", Position(1, 0))
+        snap = PieceSnapshot.from_piece("bP", Cell(1, 0))
         assert snap.color is Color.BLACK
         assert snap.kind == "P"
 
     def test_status_flags_default_to_false(self):
-        snap = PieceSnapshot.from_piece("wR", Position(0, 0))
+        snap = PieceSnapshot.from_piece("wR", Cell(0, 0))
         assert snap.is_in_transit is False
         assert snap.is_airborne is False
         assert snap.is_in_cooldown is False
 
     def test_status_flags_are_passed_through(self):
         snap = PieceSnapshot.from_piece(
-            "wR", Position(0, 0), is_in_transit=True, is_airborne=True, is_in_cooldown=True
+            "wR", Cell(0, 0), is_in_transit=True, is_airborne=True, is_in_cooldown=True
         )
         assert snap.is_in_transit is True
         assert snap.is_airborne is True
         assert snap.is_in_cooldown is True
 
     def test_is_frozen(self):
-        snap = PieceSnapshot.from_piece("wK", Position(0, 0))
+        snap = PieceSnapshot.from_piece("wK", Cell(0, 0))
         with pytest.raises(dataclasses.FrozenInstanceError):
             snap.kind = "Q"
 
@@ -60,19 +62,19 @@ class TestBoardSnapshotFromBoard:
     def test_empty_cells_are_none(self):
         board = TextBoard(["wK . ."])
         snap = BoardSnapshot.from_board(board)
-        assert snap.get_piece_at(Position(0, 1)) is None
-        assert snap.get_piece_at(Position(0, 2)) is None
+        assert snap.get_piece_at(Cell(0, 1)) is None
+        assert snap.get_piece_at(Cell(0, 2)) is None
 
     def test_occupied_cells_become_piece_snapshots(self):
         board = TextBoard(["wK . bR"])
         snap = BoardSnapshot.from_board(board)
 
-        king = snap.get_piece_at(Position(0, 0))
+        king = snap.get_piece_at(Cell(0, 0))
         assert king.color is Color.WHITE
         assert king.kind == "K"
-        assert king.position == Position(0, 0)
+        assert king.position == Cell(0, 0)
 
-        rook = snap.get_piece_at(Position(0, 2))
+        rook = snap.get_piece_at(Cell(0, 2))
         assert rook.color is Color.BLACK
         assert rook.kind == "R"
 
@@ -85,13 +87,13 @@ class TestBoardSnapshotFromBoard:
     def test_get_piece_at_out_of_bounds_returns_none(self):
         board = TextBoard(["wK . ."])
         snap = BoardSnapshot.from_board(board)
-        assert snap.get_piece_at(Position(-1, 0)) is None
-        assert snap.get_piece_at(Position(0, 99)) is None
+        assert snap.get_piece_at(Cell(-1, 0)) is None
+        assert snap.get_piece_at(Cell(0, 99)) is None
 
     def test_without_state_status_flags_default_to_false(self):
         board = TextBoard(["wK . ."])
         snap = BoardSnapshot.from_board(board)
-        king = snap.get_piece_at(Position(0, 0))
+        king = snap.get_piece_at(Cell(0, 0))
         assert king.is_in_transit is False
         assert king.is_airborne is False
         assert king.is_in_cooldown is False
@@ -100,10 +102,10 @@ class TestBoardSnapshotFromBoard:
         board = TextBoard(["wK . ."])
         engine = GameEngine(board, cell_size=100, move_duration=1000)
         state = GameState(board=board)
-        engine.attempt_move(state, Position(0, 0), Position(0, 1))
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 1))
 
         snap = BoardSnapshot.from_board(board, state)
-        assert snap.get_piece_at(Position(0, 0)).is_in_transit is True
+        assert snap.get_piece_at(Cell(0, 0)).is_in_transit is True
 
     def test_with_state_populates_airborne_status(self):
         board = TextBoard([". . .", ". wK .", ". . ."])
@@ -112,17 +114,17 @@ class TestBoardSnapshotFromBoard:
         engine.handle_jump(state, 150, 150)
 
         snap = BoardSnapshot.from_board(board, state)
-        assert snap.get_piece_at(Position(1, 1)).is_airborne is True
+        assert snap.get_piece_at(Cell(1, 1)).is_airborne is True
 
     def test_with_state_populates_cooldown_status(self):
         board = TextBoard(["wK . ."])
         engine = GameEngine(board, cell_size=100, move_duration=500, cooldown_duration=1000)
         state = GameState(board=board)
-        engine.attempt_move(state, Position(0, 0), Position(0, 1))
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 1))
         engine.tick(state, 500)  # move arrives, cooldown starts
 
         snap = BoardSnapshot.from_board(board, state)
-        assert snap.get_piece_at(Position(0, 1)).is_in_cooldown is True
+        assert snap.get_piece_at(Cell(0, 1)).is_in_cooldown is True
 
 
 class TestGameSnapshotFromState:
@@ -138,15 +140,15 @@ class TestGameSnapshotFromState:
         board = TextBoard(["wK . ."])
         state = GameState(board=board)
         state.pending.append(
-            PendingMove(piece="wK", from_pos=Position(0, 0), to_pos=Position(0, 1), arrival_time=100)
+            PendingMove(piece="wK", from_pos=Cell(0, 0), to_pos=Cell(0, 1), arrival_time=100)
         )
-        state.airborne.append(PendingJump(piece="wK", pos=Position(0, 0), land_time=100))
+        state.airborne.append(PendingJump(piece="wK", pos=Cell(0, 0), land_time=100))
 
         snap = GameSnapshot.from_state(state)
         assert snap.pending == (
-            PendingMove(piece="wK", from_pos=Position(0, 0), to_pos=Position(0, 1), arrival_time=100),
+            PendingMove(piece="wK", from_pos=Cell(0, 0), to_pos=Cell(0, 1), arrival_time=100),
         )
-        assert snap.airborne == (PendingJump(piece="wK", pos=Position(0, 0), land_time=100),)
+        assert snap.airborne == (PendingJump(piece="wK", pos=Cell(0, 0), land_time=100),)
 
     def test_is_frozen(self):
         board = TextBoard(["wK . ."])
@@ -166,21 +168,21 @@ class TestSnapshotIsUnaffectedByLaterMutation:
         state = GameState(board=board)
 
         snap = GameSnapshot.from_state(state)
-        assert snap.board.get_piece_at(Position(0, 0)).kind == "R"
-        assert snap.board.get_piece_at(Position(1, 0)) is None
+        assert snap.board.get_piece_at(Cell(0, 0)).kind == "R"
+        assert snap.board.get_piece_at(Cell(1, 0)) is None
 
         # Mutate the live board out from under the snapshot.
-        engine.try_move(state, Position(0, 0), Position(1, 0))
-        assert board.get_piece_at(Position(1, 0)) == "wR"  # live board did move
+        engine.try_move(state, Cell(0, 0), Cell(1, 0))
+        assert board.get_piece_at(Cell(1, 0)) == "wR"  # live board did move
 
-        assert snap.board.get_piece_at(Position(0, 0)).kind == "R"  # snapshot unchanged
-        assert snap.board.get_piece_at(Position(1, 0)) is None
+        assert snap.board.get_piece_at(Cell(0, 0)).kind == "R"  # snapshot unchanged
+        assert snap.board.get_piece_at(Cell(1, 0)) is None
 
     def test_pending_survives_a_later_tick_that_clears_it(self):
         board = TextBoard(["wK . ."])
         engine = GameEngine(board, cell_size=100, move_duration=500)
         state = GameState(board=board)
-        engine.attempt_move(state, Position(0, 0), Position(0, 1))
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 1))
 
         snap = GameSnapshot.from_state(state)
         assert len(snap.pending) == 1
@@ -213,9 +215,9 @@ class TestSnapshotIsUnaffectedByLaterMutation:
         state = GameState(board=board)
 
         snap = GameSnapshot.from_state(state)
-        assert snap.board.get_piece_at(Position(0, 0)).is_in_cooldown is False
+        assert snap.board.get_piece_at(Cell(0, 0)).is_in_cooldown is False
 
         # Mutate the live state's cooldowns dict directly, after the snapshot.
-        state.cooldowns[Position(0, 0)] = state.current_time + 1000
+        state.cooldowns[Cell(0, 0)] = state.current_time + 1000
 
-        assert snap.board.get_piece_at(Position(0, 0)).is_in_cooldown is False
+        assert snap.board.get_piece_at(Cell(0, 0)).is_in_cooldown is False

@@ -1,13 +1,15 @@
 """
 Unit tests for core/models.py
 
-Scope: Color, Position, MoveRequest, and same_color in isolation.
+Scope: Color, Cell, MoveRequest, and same_color in isolation.
 Verifies enum values, frozen-dataclass immutability, and equality semantics.
 """
 
 import pytest
 
-from core.models import Color, MoveRequest, Position, same_color
+from shared.models.color import Color
+from shared.models.cell import Cell
+from core.models import MoveRequest, same_color
 
 
 class TestColor:
@@ -49,63 +51,63 @@ class TestSameColor:
         assert same_color("wK", ".") is False
 
 
-class TestPosition:
+class TestCell:
     def test_stores_row_and_col(self):
-        pos = Position(row=3, col=5)
+        pos = Cell(row=3, col=5)
         assert pos.row == 3
         assert pos.col == 5
 
     def test_equality_by_value(self):
-        assert Position(2, 4) == Position(2, 4)
+        assert Cell(2, 4) == Cell(2, 4)
 
     def test_inequality_different_row(self):
-        assert Position(0, 4) != Position(1, 4)
+        assert Cell(0, 4) != Cell(1, 4)
 
     def test_inequality_different_col(self):
-        assert Position(2, 0) != Position(2, 1)
+        assert Cell(2, 0) != Cell(2, 1)
 
     def test_is_frozen_immutable(self):
-        pos = Position(1, 2)
+        pos = Cell(1, 2)
         with pytest.raises((AttributeError, TypeError)):
             pos.row = 99  # type: ignore[misc]
 
     def test_hashable_can_be_used_in_set(self):
-        positions = {Position(0, 0), Position(0, 1), Position(0, 0)}
+        positions = {Cell(0, 0), Cell(0, 1), Cell(0, 0)}
         assert len(positions) == 2
 
     def test_hashable_can_be_used_as_dict_key(self):
-        d = {Position(0, 0): "a", Position(1, 1): "b"}
-        assert d[Position(0, 0)] == "a"
+        d = {Cell(0, 0): "a", Cell(1, 1): "b"}
+        assert d[Cell(0, 0)] == "a"
 
 
 class TestMoveRequest:
     def test_stores_from_and_to(self):
-        src = Position(6, 4)
-        dst = Position(4, 4)
+        src = Cell(6, 4)
+        dst = Cell(4, 4)
         move = MoveRequest(from_pos=src, to_pos=dst)
         assert move.from_pos == src
         assert move.to_pos == dst
 
     def test_equality_by_value(self):
         assert (
-            MoveRequest(Position(1, 0), Position(3, 0))
-            == MoveRequest(Position(1, 0), Position(3, 0))
+            MoveRequest(Cell(1, 0), Cell(3, 0))
+            == MoveRequest(Cell(1, 0), Cell(3, 0))
         )
 
     def test_inequality_different_positions(self):
         assert (
-            MoveRequest(Position(1, 0), Position(3, 0))
-            != MoveRequest(Position(2, 0), Position(3, 0))
+            MoveRequest(Cell(1, 0), Cell(3, 0))
+            != MoveRequest(Cell(2, 0), Cell(3, 0))
         )
 
     def test_is_frozen_immutable(self):
-        move = MoveRequest(Position(0, 0), Position(1, 1))
+        move = MoveRequest(Cell(0, 0), Cell(1, 1))
         with pytest.raises((AttributeError, TypeError)):
-            move.from_pos = Position(2, 2)  # type: ignore[misc]
+            move.from_pos = Cell(2, 2)  # type: ignore[misc]
 
     def test_hashable(self):
         moves = {
-            MoveRequest(Position(0, 0), Position(1, 1)),
-            MoveRequest(Position(0, 0), Position(1, 1)),
+            MoveRequest(Cell(0, 0), Cell(1, 1)),
+            MoveRequest(Cell(0, 0), Cell(1, 1)),
         }
         assert len(moves) == 1

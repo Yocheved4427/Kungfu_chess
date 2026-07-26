@@ -3,7 +3,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
-from core.models import Position, same_color
+from shared.models.cell import Cell
+from core.models import same_color
 from engine.geometry import (
     is_diagonal,
     is_king_step,
@@ -15,7 +16,7 @@ from engine.geometry import (
 )
 
 if TYPE_CHECKING:
-    from engine.board import AbstractBoard
+    from shared.models.board import AbstractBoard
 
 # ---------------------------------------------------------------------------
 # Kung Fu Chess – Movement Rules  (Strategy Pattern / OCP)
@@ -50,7 +51,7 @@ class MovementRule(ABC):
     """
 
     @abstractmethod
-    def is_valid_shape(self, from_pos: Position, to_pos: Position) -> bool:
+    def is_valid_shape(self, from_pos: Cell, to_pos: Cell) -> bool:
         """Return True iff the displacement is geometrically legal (board-agnostic)."""
 
     @property
@@ -61,8 +62,8 @@ class MovementRule(ABC):
     def is_valid_with_context(
         self,
         piece: str,
-        from_pos: Position,
-        to_pos: Position,
+        from_pos: Cell,
+        to_pos: Cell,
         dest_piece: str | None,
     ) -> bool:
         """Return True iff the move is legal given the content of the destination.
@@ -72,7 +73,7 @@ class MovementRule(ABC):
         """
         return self.is_valid_shape(from_pos, to_pos)
 
-    def requires_path_check(self, from_pos: Position, to_pos: Position) -> bool:
+    def requires_path_check(self, from_pos: Cell, to_pos: Cell) -> bool:
         """Return True iff every square strictly between *from_pos* and
         *to_pos* must be empty for this exact move.
 
@@ -86,8 +87,8 @@ class MovementRule(ABC):
     def is_valid_with_board(
         self,
         piece: str,
-        from_pos: Position,
-        to_pos: Position,
+        from_pos: Cell,
+        to_pos: Cell,
         board: AbstractBoard,
     ) -> bool:
         """Optional third-tier check with full board access, for legality
@@ -111,7 +112,7 @@ class OrthogonalRule(MovementRule):
     def is_sliding(self) -> bool:
         return True
 
-    def is_valid_shape(self, from_pos: Position, to_pos: Position) -> bool:
+    def is_valid_shape(self, from_pos: Cell, to_pos: Cell) -> bool:
         return is_orthogonal(from_pos, to_pos)
 
 
@@ -122,7 +123,7 @@ class DiagonalRule(MovementRule):
     def is_sliding(self) -> bool:
         return True
 
-    def is_valid_shape(self, from_pos: Position, to_pos: Position) -> bool:
+    def is_valid_shape(self, from_pos: Cell, to_pos: Cell) -> bool:
         return is_diagonal(from_pos, to_pos)
 
 
@@ -133,7 +134,7 @@ class KnightRule(MovementRule):
     def is_sliding(self) -> bool:
         return False
 
-    def is_valid_shape(self, from_pos: Position, to_pos: Position) -> bool:
+    def is_valid_shape(self, from_pos: Cell, to_pos: Cell) -> bool:
         return is_knight_shape(from_pos, to_pos)
 
 
@@ -151,7 +152,7 @@ class _CompositeRule(MovementRule):
     def is_sliding(self) -> bool:
         return any(r.is_sliding for r in self._rules)
 
-    def is_valid_shape(self, from_pos: Position, to_pos: Position) -> bool:
+    def is_valid_shape(self, from_pos: Cell, to_pos: Cell) -> bool:
         return any(r.is_valid_shape(from_pos, to_pos) for r in self._rules)
 
 
@@ -166,7 +167,7 @@ class KingRule(MovementRule):
     def is_sliding(self) -> bool:
         return False
 
-    def is_valid_shape(self, from_pos: Position, to_pos: Position) -> bool:
+    def is_valid_shape(self, from_pos: Cell, to_pos: Cell) -> bool:
         return is_king_step(from_pos, to_pos)
 
 
@@ -200,7 +201,7 @@ class PawnRule(MovementRule):
     def is_sliding(self) -> bool:
         return False
 
-    def is_valid_shape(self, from_pos: Position, to_pos: Position) -> bool:
+    def is_valid_shape(self, from_pos: Cell, to_pos: Cell) -> bool:
         """Loose geometry check (board-agnostic): one step forward/diagonal,
         or two straight. Direction, start-row, and path are enforced by
         ``is_valid_with_context`` / ``is_valid_with_board``."""
@@ -213,8 +214,8 @@ class PawnRule(MovementRule):
     def is_valid_with_context(
         self,
         piece: str,
-        from_pos: Position,
-        to_pos: Position,
+        from_pos: Cell,
+        to_pos: Cell,
         dest_piece: str | None,
     ) -> bool:
         """Full pawn legality: direction + destination-content checks."""
@@ -230,15 +231,15 @@ class PawnRule(MovementRule):
             return dest_piece is not None and dest_piece != "."
         return False
 
-    def requires_path_check(self, from_pos: Position, to_pos: Position) -> bool:
+    def requires_path_check(self, from_pos: Cell, to_pos: Cell) -> bool:
         """Only the two-step advance can be blocked mid-flight."""
         return abs(to_pos.row - from_pos.row) == 2
 
     def is_valid_with_board(
         self,
         piece: str,
-        from_pos: Position,
-        to_pos: Position,
+        from_pos: Cell,
+        to_pos: Cell,
         board: AbstractBoard,
     ) -> bool:
         """The two-step advance is only legal from the colour's start row.
@@ -295,8 +296,8 @@ class MoveValidator:
     def is_valid(
         self,
         piece: str,
-        from_pos: Position,
-        to_pos: Position,
+        from_pos: Cell,
+        to_pos: Cell,
         board: AbstractBoard,
     ) -> bool:
         """Return True iff *piece* may legally move from *from_pos* to *to_pos*."""

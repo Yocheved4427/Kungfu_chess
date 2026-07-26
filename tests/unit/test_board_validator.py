@@ -20,7 +20,7 @@ No parser, board, or I/O handler is involved.
 import pytest
 
 from engine.board_validator import BoardValidationError, BoardValidator
-from core.config import VALID_PIECE_CHARS
+from shared.constants import VALID_PIECE_CHARS
 
 
 # ---------------------------------------------------------------------------

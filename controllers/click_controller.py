@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from core.models import Position, same_color
+from shared.models.cell import Cell
+from core.models import same_color
 from input.board_mapper import BoardMapper
 
 if TYPE_CHECKING:
@@ -65,7 +66,7 @@ class ClickController:
     def __init__(self, engine: "GameEngine", mapper: BoardMapper) -> None:
         self._engine = engine
         self._mapper = mapper
-        self.selection: Position | None = None
+        self.selection: Cell | None = None
 
     def handle_click(self, state: "GameState", x: int, y: int) -> None:
         if state.game_over:

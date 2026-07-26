@@ -43,8 +43,9 @@ from graphics_board_renderer import (  # noqa: E402
 )
 from img import Img  # noqa: E402
 
-from core.models import Color, Position  # noqa: E402
-from engine.board import TextBoard  # noqa: E402
+from shared.models.color import Color  # noqa: E402
+from shared.models.cell import Cell  # noqa: E402
+from shared.models.board import TextBoard  # noqa: E402
 from engine.game_state import GameState  # noqa: E402
 from engine.move_history_tracker import CompletedMove  # noqa: E402
 from engine.snapshot import GameSnapshot  # noqa: E402
@@ -110,8 +111,8 @@ class TestBoardIsNeverOverlappedByPanels:
         before = screen.img.copy()
 
         moves = [
-            CompletedMove(time=1000, color=Color.WHITE, kind="Q", destination=Position(0, 0)),
-            CompletedMove(time=2000, color=Color.BLACK, kind="N", destination=Position(7, 7)),
+            CompletedMove(time=1000, color=Color.WHITE, kind="Q", destination=Cell(0, 0)),
+            CompletedMove(time=2000, color=Color.BLACK, kind="N", destination=Cell(7, 7)),
         ]
         renderer.render_player_panel(screen, Color.WHITE, 999, moves)
         renderer.render_player_panel(screen, Color.BLACK, 999, moves)
@@ -188,7 +189,7 @@ class TestHistoryStartsBelowTheNameScoreBox:
         with_history = Img()
         with_history.img = screen.img.copy()
         many_moves = [
-            CompletedMove(time=i * 1000, color=Color.WHITE, kind="Q", destination=Position(7, 7))
+            CompletedMove(time=i * 1000, color=Color.WHITE, kind="Q", destination=Cell(7, 7))
             for i in range(1, 6)
         ]
         renderer.render_player_panel(with_history, Color.WHITE, 3, many_moves)
@@ -207,7 +208,7 @@ class TestPerColorHistoryFiltering:
         filter, not a guess -- see engine/move_history_tracker.py."""
         renderer = _renderer(show_side_panels=True)
         screen_white_only = _rendered_screen(renderer)
-        white_moves = [CompletedMove(time=1000, color=Color.WHITE, kind="Q", destination=Position(0, 0))]
+        white_moves = [CompletedMove(time=1000, color=Color.WHITE, kind="Q", destination=Cell(0, 0))]
         renderer.render_player_panel(screen_white_only, Color.WHITE, 0, white_moves)
 
         renderer2 = _renderer(show_side_panels=True)
@@ -221,7 +222,7 @@ class TestPerColorHistoryFiltering:
     def test_a_colours_panel_does_not_draw_the_other_colours_moves(self):
         renderer = _renderer(show_side_panels=True)
         screen_with_only_black_move = _rendered_screen(renderer)
-        black_only = [CompletedMove(time=1000, color=Color.BLACK, kind="P", destination=Position(3, 3))]
+        black_only = [CompletedMove(time=1000, color=Color.BLACK, kind="P", destination=Cell(3, 3))]
         renderer.render_player_panel(screen_with_only_black_move, Color.WHITE, 0, black_only)
 
         renderer2 = _renderer(show_side_panels=True)
@@ -249,7 +250,7 @@ class TestNothingExceedsCanvasBounds:
                 time=i * 1000,
                 color=Color.WHITE if i % 2 == 0 else Color.BLACK,
                 kind="Q",
-                destination=Position(7, 7),
+                destination=Cell(7, 7),
             )
             for i in range(1, 41)
         ]
@@ -268,7 +269,7 @@ class TestNothingExceedsCanvasBounds:
         blank = screen.img.copy()
 
         moves = [
-            CompletedMove(time=i * 1000, color=Color.WHITE, kind="Q", destination=Position(7, 7))
+            CompletedMove(time=i * 1000, color=Color.WHITE, kind="Q", destination=Cell(7, 7))
             for i in range(1, 21)
         ]
         renderer.render_player_panel(screen, Color.WHITE, 999_999, moves)

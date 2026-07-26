@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from typing import List
 
-from core.models import Position
-from engine.board import TextBoard
+from shared.models.cell import Cell
+from shared.models.board import TextBoard
 from engine.game import GameEngine
 from engine.game_state import GameState
 from ui.events import (
@@ -51,7 +51,7 @@ class TestHandleJumpAcceptance:
         engine = GameEngine(board, cell_size=100, jump_duration=1000)
         state = GameState(board=board)
         engine.handle_jump(state, 150, 150)
-        assert engine.is_airborne(state, Position(1, 1)) is True
+        assert engine.is_airborne(state, Cell(1, 1)) is True
 
     def test_jump_land_time_is_current_time_plus_jump_duration(self):
         board = TextBoard([". . .", ". wK .", ". . ."])
@@ -66,7 +66,7 @@ class TestHandleJumpAcceptance:
         engine = GameEngine(board, cell_size=100)
         state = GameState(board=board)
         engine.handle_jump(state, 150, 150)
-        assert state.board.get_piece_at(Position(1, 1)) == "wK"
+        assert state.board.get_piece_at(Cell(1, 1)) == "wK"
 
     def test_jump_out_of_bounds_is_ignored(self):
         board = TextBoard(["wK ."])
@@ -139,7 +139,7 @@ class TestClickIsBlockedByAirborne:
         engine.handle_jump(state, 100, 0)   # wR airborne
         engine.handle_click(state, 0, 0)    # select wK
         engine.handle_click(state, 100, 0)  # attempt switch to airborne wR — blocked
-        assert engine.selection == Position(0, 0)
+        assert engine.selection == Cell(0, 0)
 
     def test_jump_between_two_clicks_cancels_the_pending_move_attempt(self):
         """Selecting a piece, then jumping it before completing the move
@@ -165,8 +165,8 @@ class TestJumpLandsSafely:
         state = GameState(board=board)
         engine.handle_jump(state, 150, 150)
         engine.tick(state, 1000)
-        assert state.board.get_piece_at(Position(1, 1)) == "wK"
-        assert engine.is_airborne(state, Position(1, 1)) is False
+        assert state.board.get_piece_at(Cell(1, 1)) == "wK"
+        assert engine.is_airborne(state, Cell(1, 1)) is False
 
     def test_jump_landed_event_fires_on_expiry(self):
         board = TextBoard([". . .", ". wK .", ". . ."])
@@ -179,7 +179,7 @@ class TestJumpLandsSafely:
         landed = obs.of_type(JumpLandedEvent)
         assert len(landed) == 1
         assert landed[0].piece == "wK"
-        assert landed[0].pos == Position(1, 1)
+        assert landed[0].pos == Cell(1, 1)
 
     def test_still_airborne_before_land_time(self):
         board = TextBoard([". . .", ". wK .", ". . ."])
@@ -187,7 +187,7 @@ class TestJumpLandsSafely:
         state = GameState(board=board)
         engine.handle_jump(state, 150, 150)
         engine.tick(state, 999)
-        assert engine.is_airborne(state, Position(1, 1)) is True
+        assert engine.is_airborne(state, Cell(1, 1)) is True
 
     def test_piece_not_selectable_immediately_after_landing(self):
         """Landing clears the airborne state but starts a cooldown window
@@ -209,7 +209,7 @@ class TestJumpLandsSafely:
         engine.tick(state, 1000)  # lands at t=1000, cooldown until t=2000
         engine.tick(state, 1000)  # clock = 2000, cooldown just elapsed
         engine.handle_click(state, 150, 150)
-        assert engine.selection == Position(1, 1)
+        assert engine.selection == Cell(1, 1)
 
 
 class TestAirborneCapture:
@@ -225,8 +225,8 @@ class TestAirborneCapture:
         engine.handle_click(state, 150, 150)  # select bR
         engine.handle_click(state, 50, 150)   # queue bR -> (1,0), attacking airborne wK
         engine.tick(state, 1000)
-        assert state.board.get_piece_at(Position(1, 0)) == "wK"
-        assert state.board.get_piece_at(Position(1, 1)) == "."
+        assert state.board.get_piece_at(Cell(1, 0)) == "wK"
+        assert state.board.get_piece_at(Cell(1, 1)) == "."
 
     def test_airborne_capture_event_fires_instead_of_move_completed(self):
         engine, state = self._engine()
@@ -239,7 +239,7 @@ class TestAirborneCapture:
         captures = obs.of_type(AirborneCaptureEvent)
         assert len(captures) == 1
         assert captures[0].defender == "wK"
-        assert captures[0].pos == Position(1, 0)
+        assert captures[0].pos == Cell(1, 0)
         assert captures[0].attacker == "bR"
         assert obs.of_type(MoveCompletedEvent) == []
 
@@ -249,10 +249,10 @@ class TestAirborneCapture:
         engine.handle_click(state, 150, 150)
         engine.handle_click(state, 50, 150)
         engine.tick(state, 1000)  # attacker arrives AND land_time both hit at t=1000
-        assert engine.is_airborne(state, Position(1, 0)) is False
+        assert engine.is_airborne(state, Cell(1, 0)) is False
         engine.tick(state, 1000)  # clock = 2000, landing cooldown just elapsed
         engine.handle_click(state, 50, 150)
-        assert engine.selection == Position(1, 0)
+        assert engine.selection == Cell(1, 0)
 
     def test_landing_exact_tick_as_arrival_still_defends(self):
         """land_time == arrival_time: the defender is still considered
@@ -263,7 +263,7 @@ class TestAirborneCapture:
         engine.handle_click(state, 150, 150)
         engine.handle_click(state, 50, 150)   # arrival_time = 1000
         engine.tick(state, 1000)
-        assert state.board.get_piece_at(Position(1, 0)) == "wK"
+        assert state.board.get_piece_at(Cell(1, 0)) == "wK"
 
     def test_friendly_arrival_at_airborne_cell_is_rejected_not_captured(self):
         """A same-colour piece trying to land on an airborne friendly is
@@ -277,8 +277,8 @@ class TestAirborneCapture:
         engine.handle_click(state, 50, 150)   # attempt to land on friendly wK — invalid
         assert state.pending == []
         engine.tick(state, 1000)
-        assert state.board.get_piece_at(Position(1, 0)) == "wK"
-        assert state.board.get_piece_at(Position(1, 1)) == "wR"
+        assert state.board.get_piece_at(Cell(1, 0)) == "wK"
+        assert state.board.get_piece_at(Cell(1, 1)) == "wR"
 
     def test_multiple_enemies_arriving_same_tick_are_all_defeated(self):
         """The airborne piece never leaves its cell, so it can defeat more
@@ -292,9 +292,9 @@ class TestAirborneCapture:
         engine.handle_click(state, 0, 200)    # select bR at (2,0)
         engine.handle_click(state, 0, 100)    # queue bR -> (1,0), 1 cell
         engine.tick(state, 1000)
-        assert state.board.get_piece_at(Position(1, 0)) == "wK"
-        assert state.board.get_piece_at(Position(0, 0)) == "."
-        assert state.board.get_piece_at(Position(2, 0)) == "."
+        assert state.board.get_piece_at(Cell(1, 0)) == "wK"
+        assert state.board.get_piece_at(Cell(0, 0)) == "."
+        assert state.board.get_piece_at(Cell(2, 0)) == "."
 
     def test_jump_too_late_after_move_already_landed_captures_normally(self):
         """If the attacking move has already resolved (piece already
@@ -312,7 +312,7 @@ class TestAirborneCapture:
         engine.tick(state, 1000)              # bR captures wN — wN is now gone
         engine.tick(state, 1000)              # clock = 2000, landing cooldown elapsed
         engine.handle_jump(state, 50, 150)    # too late: (1,0) now holds bR, jumping it now
-        assert state.board.get_piece_at(Position(1, 0)) == "bR"
+        assert state.board.get_piece_at(Cell(1, 0)) == "bR"
         assert state.airborne[0].piece == "bR"  # jumps the survivor, not the dead wN
 
 
@@ -326,7 +326,7 @@ class TestAirborneCaptureEndsGameViaKing:
         engine.handle_click(state, 0, 100)    # queue wK -> (1,0), attacking airborne bR
         engine.tick(state, 1000)
         assert state.game_over is True
-        assert state.board.get_piece_at(Position(1, 0)) == "bR"
+        assert state.board.get_piece_at(Cell(1, 0)) == "bR"
         # Later click on the surviving wN must now be ignored.
         engine.handle_click(state, 200, 200)
         assert engine.selection is None

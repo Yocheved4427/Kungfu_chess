@@ -44,8 +44,9 @@ sys.path.insert(0, str(GRAPHICS_DIR))
 
 from img import Img  # noqa: E402
 
-from core.models import Color, Position  # noqa: E402
-from engine.board import TextBoard  # noqa: E402
+from shared.models.color import Color  # noqa: E402
+from shared.models.cell import Cell  # noqa: E402
+from shared.models.board import TextBoard  # noqa: E402
 from engine.game import GameEngine  # noqa: E402
 from engine.game_state import GameState  # noqa: E402
 from input.board_mapper import BoardMapper  # noqa: E402
@@ -119,7 +120,7 @@ class TestOwnColorClickController:
         x, y = mapper.cell_to_pixel(6, 0)  # a white pawn
         white.handle_click(state, x, y)
 
-        assert white.selection == Position(6, 0)
+        assert white.selection == Cell(6, 0)
 
     def test_clicking_an_enemy_piece_does_not_select_it(self):
         mapper = BoardMapper(100)
@@ -151,14 +152,14 @@ class TestOwnColorClickController:
 
         from_x, from_y = mapper.cell_to_pixel(6, 0)
         white.handle_click(state, from_x, from_y)
-        assert white.selection == Position(6, 0)
+        assert white.selection == Cell(6, 0)
 
         to_x, to_y = mapper.cell_to_pixel(5, 0)
         white.handle_click(state, to_x, to_y)
 
         assert white.selection is None  # cleared after a move attempt
         assert len(state.pending) == 1
-        assert state.pending[0].from_pos == Position(6, 0)
+        assert state.pending[0].from_pos == Cell(6, 0)
 
 
 class TestTwoIndependentControllersDoNotClobberEachOther:
@@ -180,8 +181,8 @@ class TestTwoIndependentControllersDoNotClobberEachOther:
         bx, by = mapper.cell_to_pixel(1, 0)
         black.handle_click(state, bx, by)
 
-        assert white.selection == Position(6, 0)
-        assert black.selection == Position(1, 0)
+        assert white.selection == Cell(6, 0)
+        assert black.selection == Cell(1, 0)
 
     def test_black_selecting_its_own_piece_does_not_trigger_whites_pending_move(self):
         """Without independent selection state, this exact sequence
@@ -200,8 +201,8 @@ class TestTwoIndependentControllersDoNotClobberEachOther:
         black.handle_click(state, bx, by)  # Black selects their own pawn
 
         assert state.pending == []  # no move was queued for either side
-        assert white.selection == Position(6, 0)  # White's selection untouched
-        assert black.selection == Position(1, 0)
+        assert white.selection == Cell(6, 0)  # White's selection untouched
+        assert black.selection == Cell(1, 0)
 
 
 class TestHstack:

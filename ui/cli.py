@@ -4,6 +4,8 @@ import argparse
 import logging
 import pathlib
 
+from shared.constants import DEFAULT_HOST, DEFAULT_PORT
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,14 +69,17 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--host",
-        default="localhost",
-        help="Server hostname for --username's network mode. Default: localhost.",
+        default=DEFAULT_HOST,
+        help=f"Server hostname for --username's network mode. Default: {DEFAULT_HOST}.",
     )
     parser.add_argument(
         "--port",
         type=int,
-        default=8765,
-        help="Server port for --username's network mode. Default: 8765 (server/server.py's own default).",
+        default=DEFAULT_PORT,
+        help=(
+            f"Server port for --username's network mode. Default: {DEFAULT_PORT} "
+            "(shared.constants.DEFAULT_PORT -- the same value server/server.py itself defaults to)."
+        ),
     )
     return parser.parse_args()
 

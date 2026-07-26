@@ -13,8 +13,9 @@ GameEngine threads it through rather than holding any of its own.
 
 from __future__ import annotations
 
-from core.models import PendingJump, PendingMove, Position
-from engine.board import TextBoard
+from shared.models.cell import Cell
+from core.models import PendingJump, PendingMove
+from shared.models.board import TextBoard
 from engine.game import GameEngine
 from engine.game_state import GameState
 
@@ -38,10 +39,10 @@ class TestGameStateDefaults:
         state_a = GameState(board=TextBoard(["wK ."]))
         state_b = GameState(board=TextBoard(["wK ."]))
         state_a.pending.append(
-            PendingMove(piece="wK", from_pos=Position(0, 0), to_pos=Position(0, 1), arrival_time=100)
+            PendingMove(piece="wK", from_pos=Cell(0, 0), to_pos=Cell(0, 1), arrival_time=100)
         )
-        state_a.airborne.append(PendingJump(piece="wK", pos=Position(0, 0), land_time=100))
-        state_a.cooldowns[Position(0, 0)] = 100
+        state_a.airborne.append(PendingJump(piece="wK", pos=Cell(0, 0), land_time=100))
+        state_a.cooldowns[Cell(0, 0)] = 100
         assert state_b.pending == []
         assert state_b.airborne == []
         assert state_b.cooldowns == {}
@@ -86,9 +87,9 @@ class TestGameEngineMutatesTheGivenState:
         board = TextBoard(["wK . ."])
         engine = GameEngine(board, cell_size=100, move_duration=500)
         state = GameState(board=board)
-        assert engine.attempt_move(state, Position(0, 0), Position(0, 1)) is True
+        assert engine.attempt_move(state, Cell(0, 0), Cell(0, 1)) is True
         assert len(state.pending) == 1
-        assert state.pending[0].from_pos == Position(0, 0)
+        assert state.pending[0].from_pos == Cell(0, 0)
 
     def test_handle_jump_appends_to_the_given_states_airborne_list(self):
         board = TextBoard([". . .", ". wK .", ". . ."])
@@ -96,7 +97,7 @@ class TestGameEngineMutatesTheGivenState:
         state = GameState(board=board)
         engine.handle_jump(state, 150, 150)
         assert len(state.airborne) == 1
-        assert state.airborne[0].pos == Position(1, 1)
+        assert state.airborne[0].pos == Cell(1, 1)
 
     def test_game_over_and_winner_are_written_onto_the_given_state(self):
         board = TextBoard(["wR . .", "bK . ."])

@@ -20,8 +20,8 @@ its own ``GameState`` and passes it explicitly to every engine call.
 
 import pytest
 
-from core.models import Position
-from engine.board import TextBoard
+from shared.models.cell import Cell
+from shared.models.board import TextBoard
 from engine.game import GameEngine
 from engine.game_state import GameState
 from engine.rules import MoveValidator
@@ -47,31 +47,31 @@ def _engine_3x3() -> tuple[GameEngine, GameState]:
 class TestIsInTransit:
     def test_not_in_transit_before_any_move(self):
         engine, state = _engine_3x3()
-        assert engine.is_in_transit(state, Position(0, 0)) is False
+        assert engine.is_in_transit(state, Cell(0, 0)) is False
 
     def test_in_transit_immediately_after_queuing(self):
         engine, state = _engine_3x3()
         engine.handle_click(state, 0, 0)    # select wK at (0,0)
         engine.handle_click(state, 100, 0)  # move to (0,1) — 1 cell → arrives at 500 ms
-        assert engine.is_in_transit(state, Position(0, 0)) is True
+        assert engine.is_in_transit(state, Cell(0, 0)) is True
 
     def test_not_in_transit_while_clock_has_not_reached_arrival(self):
         engine, state = _engine_3x3()
         engine.handle_click(state, 0, 0)
         engine.handle_click(state, 100, 0)  # arrival_time = 500 ms
         engine.tick(state, 499)             # still in transit
-        assert engine.is_in_transit(state, Position(0, 0)) is True
+        assert engine.is_in_transit(state, Cell(0, 0)) is True
 
     def test_not_in_transit_after_arrival(self):
         engine, state = _engine_3x3()
         engine.handle_click(state, 0, 0)
         engine.handle_click(state, 100, 0)  # arrival_time = 500 ms
         engine.tick(state, 500)             # move executes, wK now at (0,1)
-        assert engine.is_in_transit(state, Position(0, 1)) is False
+        assert engine.is_in_transit(state, Cell(0, 1)) is False
 
     def test_arbitrary_empty_square_never_in_transit(self):
         engine, state = _engine_3x3()
-        assert engine.is_in_transit(state, Position(1, 1)) is False
+        assert engine.is_in_transit(state, Cell(1, 1)) is False
 
 
 # ===========================================================================
@@ -112,7 +112,7 @@ class TestCannotRedirectInTransit:
         engine.handle_click(state, 0, 0)    # blocked — no selection acquired
         engine.handle_click(state, 0, 100)  # attempt redirect to (1,0) — should be ignored
         assert len(state.pending) == 1
-        assert state.pending[0].to_pos == Position(0, 1)
+        assert state.pending[0].to_pos == Cell(0, 1)
 
     def test_second_pending_move_not_added_when_redirected(self):
         engine, state = _engine_3x3()
@@ -143,7 +143,7 @@ class TestCooldownAfterArrival:
         engine.tick(state, 500)             # clock = 500 — move lands, cooldown starts
         engine.tick(state, 1000)            # clock = 1500, cooldown just elapsed
         engine.handle_click(state, 100, 0)  # select wK at (0,1)
-        assert engine.selection == Position(0, 1)
+        assert engine.selection == Cell(0, 1)
 
     def test_move_not_queueable_during_cooldown(self):
         engine, state = _engine_3x3()
@@ -163,8 +163,8 @@ class TestCooldownAfterArrival:
         engine.handle_click(state, 100, 0)  # select wK at (0,1)
         engine.handle_click(state, 200, 0)  # move to (0,2)
         assert len(state.pending) == 1
-        assert state.pending[0].from_pos == Position(0, 1)
-        assert state.pending[0].to_pos == Position(0, 2)
+        assert state.pending[0].from_pos == Cell(0, 1)
+        assert state.pending[0].to_pos == Cell(0, 2)
 
     def test_arrival_exactly_on_tick_is_not_in_transit(self):
         """Transit lock and cooldown are separate mechanisms: transit lifts
@@ -174,8 +174,8 @@ class TestCooldownAfterArrival:
         engine.handle_click(state, 0, 0)
         engine.handle_click(state, 100, 0)  # arrives at 500 ms
         engine.tick(state, 500)
-        assert engine.is_in_transit(state, Position(0, 1)) is False
-        assert engine.is_in_cooldown(state, Position(0, 1)) is True
+        assert engine.is_in_transit(state, Cell(0, 1)) is False
+        assert engine.is_in_cooldown(state, Cell(0, 1)) is True
 
 
 # ===========================================================================
@@ -195,7 +195,7 @@ class TestFriendlyReselectionBlocked:
         # Select wK, then try to switch to in-transit wR
         engine.handle_click(state, 0, 0)    # select wK
         engine.handle_click(state, 100, 0)  # click wR (in transit) — should be blocked
-        assert engine.selection == Position(0, 0)
+        assert engine.selection == Cell(0, 0)
 
     def test_selection_unchanged_when_friendly_in_transit_clicked(self):
         """The selection variable holds the last valid selection; a blocked
@@ -248,9 +248,9 @@ class TestRedirectLockScenarios:
         engine.tick(state, 500)
 
         # Piece must be at the original destination, not the redirect target.
-        assert state.board.get_piece_at(Position(0, 1)) == "wK"
-        assert state.board.get_piece_at(Position(1, 0)) == "."
-        assert state.board.get_piece_at(Position(0, 0)) == "."
+        assert state.board.get_piece_at(Cell(0, 1)) == "wK"
+        assert state.board.get_piece_at(Cell(1, 0)) == "."
+        assert state.board.get_piece_at(Cell(0, 0)) == "."
 
     def test_redirect_mid_transit_queue_has_exactly_one_pending_move(self):
         """A redirect attempt must not add a second entry to the pending queue."""
@@ -262,7 +262,7 @@ class TestRedirectLockScenarios:
         engine.handle_click(state, 0, 100)  # redirect: destination ignored
 
         assert len(state.pending) == 1
-        assert state.pending[0].to_pos == Position(0, 1)
+        assert state.pending[0].to_pos == Cell(0, 1)
 
     # ------------------------------------------------------------------
     # 2. Piece arrives → blocked by cooldown, then accepts a new move
@@ -289,8 +289,8 @@ class TestRedirectLockScenarios:
         engine.handle_click(state, 200, 0)  # move to (0,2)
 
         assert len(state.pending) == 1
-        assert state.pending[0].from_pos == Position(0, 1)
-        assert state.pending[0].to_pos == Position(0, 2)
+        assert state.pending[0].from_pos == Cell(0, 1)
+        assert state.pending[0].to_pos == Cell(0, 2)
         # arrival_time of the new move must be relative to current clock (1500).
         assert state.pending[0].arrival_time == 2000  # 1500 + 1 cell * 500 ms
 
@@ -303,7 +303,7 @@ class TestRedirectLockScenarios:
         engine.handle_click(state, 100, 0)  # arrives at t=500
         engine.tick(state, 500)
 
-        assert engine.is_in_transit(state, Position(0, 1)) is False
+        assert engine.is_in_transit(state, Cell(0, 1)) is False
         engine.handle_click(state, 100, 0)
         assert engine.selection is None  # still blocked by cooldown
 
@@ -323,7 +323,7 @@ class TestRedirectLockScenarios:
         engine.handle_click(state, 0, 0)    # select blocked
         engine.handle_click(state, 0, 100)  # destination ignored
         assert len(state.pending) == 1
-        assert state.pending[0].to_pos == Position(0, 1)
+        assert state.pending[0].to_pos == Cell(0, 1)
 
     def test_move_command_accepted_after_tick_that_executes_arrival_and_cooldown(self):
         """tick(arrival_time) executes the move.  Once COOLDOWN_DURATION
@@ -338,7 +338,7 @@ class TestRedirectLockScenarios:
         engine.handle_click(state, 100, 0)  # select wK at new pos (0,1)
         engine.handle_click(state, 200, 0)  # move to (0,2)
         assert len(state.pending) == 1
-        assert state.pending[0].from_pos == Position(0, 1)
+        assert state.pending[0].from_pos == Cell(0, 1)
 
     def test_redirect_and_then_arrival_piece_at_original_destination(self):
         """Redirect at t=arrival_time-1 is rejected; piece still arrives at
@@ -351,8 +351,8 @@ class TestRedirectLockScenarios:
         engine.handle_click(state, 0, 100)  # attempt redirect to (1,0)
         engine.tick(state, 1)               # arrival fires
 
-        assert state.board.get_piece_at(Position(0, 1)) == "wK"
-        assert state.board.get_piece_at(Position(1, 0)) == "."
+        assert state.board.get_piece_at(Cell(0, 1)) == "wK"
+        assert state.board.get_piece_at(Cell(1, 0)) == "."
 
     # ------------------------------------------------------------------
     # 4. Edge case: multiple redirect attempts during one transit
@@ -377,7 +377,7 @@ class TestRedirectLockScenarios:
 
         # Only the original move must still be pending.
         assert len(state.pending) == 1
-        assert state.pending[0].to_pos == Position(0, 1)
+        assert state.pending[0].to_pos == Cell(0, 1)
 
     def test_multiple_redirects_piece_arrives_at_original_destination(self):
         """After many rejected redirects the piece must complete its original
@@ -392,9 +392,9 @@ class TestRedirectLockScenarios:
 
         engine.tick(state, 500)  # arrival
 
-        assert state.board.get_piece_at(Position(0, 1)) == "wK"
-        assert state.board.get_piece_at(Position(0, 0)) == "."
-        assert state.board.get_piece_at(Position(1, 0)) == "."
+        assert state.board.get_piece_at(Cell(0, 1)) == "wK"
+        assert state.board.get_piece_at(Cell(0, 0)) == "."
+        assert state.board.get_piece_at(Cell(1, 0)) == "."
 
     def test_redirect_attempts_do_not_corrupt_pending_queue(self):
         """Pending queue must stay exactly length 1 throughout a transit
@@ -447,9 +447,9 @@ class TestOppositeColorRouteLock:
         engine.handle_click(state, 50, 250)
         engine.handle_click(state, 250, 250)
         engine.tick(state, 2000)
-        assert state.board.get_piece_at(Position(0, 2)) == "wR"
-        assert state.board.get_piece_at(Position(2, 0)) == "bR"
-        assert state.board.get_piece_at(Position(2, 2)) == "."
+        assert state.board.get_piece_at(Cell(0, 2)) == "wR"
+        assert state.board.get_piece_at(Cell(2, 0)) == "bR"
+        assert state.board.get_piece_at(Cell(2, 2)) == "."
 
     def test_same_color_common_route_is_not_blocked(self):
         """The lock only applies to opposite colours; two friendly pieces

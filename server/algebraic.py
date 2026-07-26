@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from core.models import Position
+from shared.models.cell import Cell
 
 # ---------------------------------------------------------------------------
 # Kung Fu Chess – Algebraic Notation
 # ---------------------------------------------------------------------------
 # Converts between standard chess square names ("e2") and this engine's
-# (row, col) Position — the wire format server.server's move protocol
+# (row, col) Cell — the wire format server.server's move protocol
 # uses for a client's "from"/"to" fields. No such conversion existed
 # anywhere in the codebase before this (checked input/board_parser.py,
 # input/board_mapper.py, core/models.py — all pixel/row-text, never
@@ -32,8 +32,8 @@ class AlgebraicNotationError(ValueError):
     """Raised when a string isn't a valid algebraic square name."""
 
 
-def algebraic_to_position(square: str) -> Position:
-    """Parse a square name like ``"e2"`` into a ``Position``.
+def algebraic_to_cell(square: str) -> Cell:
+    """Parse a square name like ``"e2"`` into a ``Cell``.
 
     Raises ``AlgebraicNotationError`` iff *square* isn't exactly a
     lowercase-or-uppercase file letter (a-h) followed by a rank digit
@@ -55,18 +55,18 @@ def algebraic_to_position(square: str) -> Position:
             f"Invalid square {square!r}: rank must be 1-{_NUM_RANKS}"
         )
 
-    return Position(row=_NUM_RANKS - rank, col=_FILES.index(file_char))
+    return Cell(row=_NUM_RANKS - rank, col=_FILES.index(file_char))
 
 
-def position_to_algebraic(position: Position) -> str:
-    """Format a ``Position`` as a square name like ``"e2"`` — the
-    inverse of ``algebraic_to_position``.
+def cell_to_algebraic(cell: Cell) -> str:
+    """Format a ``Cell`` as a square name like ``"e2"`` — the
+    inverse of ``algebraic_to_cell``.
 
-    Raises ``AlgebraicNotationError`` iff *position* falls outside the
+    Raises ``AlgebraicNotationError`` iff *cell* falls outside the
     standard 8x8 board.
     """
-    if not (0 <= position.row < _NUM_RANKS and 0 <= position.col < len(_FILES)):
+    if not (0 <= cell.row < _NUM_RANKS and 0 <= cell.col < len(_FILES)):
         raise AlgebraicNotationError(
-            f"{position!r} is outside the standard 8x8 board"
+            f"{cell!r} is outside the standard 8x8 board"
         )
-    return f"{_FILES[position.col]}{_NUM_RANKS - position.row}"
+    return f"{_FILES[cell.col]}{_NUM_RANKS - cell.row}"

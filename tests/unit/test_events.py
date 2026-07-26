@@ -12,7 +12,8 @@ import json
 import pytest
 from dataclasses import FrozenInstanceError
 
-from core.models import Color, Position
+from shared.models.color import Color
+from shared.models.cell import Cell
 from ui.events import (
     AirborneCaptureEvent,
     GameEvent,
@@ -93,8 +94,8 @@ class TestObserver:
 # ===========================================================================
 #
 # Each test checks: the "type" field names the concrete subclass, every
-# field round-trips with the correct value (Positions as plain
-# {"row": int, "col": int} dicts, not raw Position objects), and the
+# field round-trips with the correct value (Cells as plain
+# {"row": int, "col": int} dicts, not raw Cell objects), and the
 # whole dict survives json.dumps/json.loads unchanged.
 # ===========================================================================
 
@@ -122,8 +123,8 @@ class TestMoveCompletedEventToDict:
     def test_to_dict_shape(self):
         e = MoveCompletedEvent(
             piece="wP",
-            from_pos=Position(6, 0),
-            to_pos=Position(4, 0),
+            from_pos=Cell(6, 0),
+            to_pos=Cell(4, 0),
             arrival_time=1000,
         )
         assert e.to_dict() == {
@@ -136,7 +137,7 @@ class TestMoveCompletedEventToDict:
 
     def test_json_round_trip(self):
         d = MoveCompletedEvent(
-            piece="wP", from_pos=Position(6, 0), to_pos=Position(4, 0), arrival_time=1000
+            piece="wP", from_pos=Cell(6, 0), to_pos=Cell(4, 0), arrival_time=1000
         ).to_dict()
         assert json.loads(json.dumps(d)) == d
 
@@ -161,7 +162,7 @@ class TestGameOverEventToDict:
 
 class TestJumpLandedEventToDict:
     def test_to_dict_shape(self):
-        e = JumpLandedEvent(piece="wN", pos=Position(3, 3), land_time=2000)
+        e = JumpLandedEvent(piece="wN", pos=Cell(3, 3), land_time=2000)
         assert e.to_dict() == {
             "type": "JumpLandedEvent",
             "piece": "wN",
@@ -170,13 +171,13 @@ class TestJumpLandedEventToDict:
         }
 
     def test_json_round_trip(self):
-        d = JumpLandedEvent(piece="wN", pos=Position(3, 3), land_time=2000).to_dict()
+        d = JumpLandedEvent(piece="wN", pos=Cell(3, 3), land_time=2000).to_dict()
         assert json.loads(json.dumps(d)) == d
 
 
 class TestAirborneCaptureEventToDict:
     def test_to_dict_shape(self):
-        e = AirborneCaptureEvent(defender="bP", pos=Position(2, 2), attacker="wN")
+        e = AirborneCaptureEvent(defender="bP", pos=Cell(2, 2), attacker="wN")
         assert e.to_dict() == {
             "type": "AirborneCaptureEvent",
             "defender": "bP",
@@ -185,5 +186,5 @@ class TestAirborneCaptureEventToDict:
         }
 
     def test_json_round_trip(self):
-        d = AirborneCaptureEvent(defender="bP", pos=Position(2, 2), attacker="wN").to_dict()
+        d = AirborneCaptureEvent(defender="bP", pos=Cell(2, 2), attacker="wN").to_dict()
         assert json.loads(json.dumps(d)) == d

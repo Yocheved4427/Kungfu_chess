@@ -26,12 +26,13 @@ sys.path.insert(0, str(GRAPHICS_DIR))
 
 from motion import interpolate_position  # noqa: E402
 
-from core.models import MoveCheckpoint, PendingMove, Position  # noqa: E402
+from shared.models.cell import Cell  # noqa: E402
+from core.models import MoveCheckpoint, PendingMove  # noqa: E402
 
 
 def _pm(
-    from_pos: Position,
-    to_pos: Position,
+    from_pos: Cell,
+    to_pos: Cell,
     start_time: int,
     checkpoints: "tuple[MoveCheckpoint, ...]",
 ) -> PendingMove:
@@ -50,10 +51,10 @@ class TestSingleSegmentMove:
 
     def setup_method(self):
         self.pm = _pm(
-            from_pos=Position(0, 0),
-            to_pos=Position(0, 1),
+            from_pos=Cell(0, 0),
+            to_pos=Cell(0, 1),
             start_time=0,
-            checkpoints=(MoveCheckpoint(Position(0, 1), 200),),
+            checkpoints=(MoveCheckpoint(Cell(0, 1), 200),),
         )
 
     def test_at_start_time_the_position_is_the_origin(self):
@@ -78,13 +79,13 @@ class TestMultiSegmentMove:
 
     def setup_method(self):
         self.pm = _pm(
-            from_pos=Position(0, 0),
-            to_pos=Position(0, 3),
+            from_pos=Cell(0, 0),
+            to_pos=Cell(0, 3),
             start_time=1000,
             checkpoints=(
-                MoveCheckpoint(Position(0, 1), 1200),
-                MoveCheckpoint(Position(0, 2), 1400),
-                MoveCheckpoint(Position(0, 3), 1600),
+                MoveCheckpoint(Cell(0, 1), 1200),
+                MoveCheckpoint(Cell(0, 2), 1400),
+                MoveCheckpoint(Cell(0, 3), 1600),
             ),
         )
 
@@ -115,12 +116,12 @@ class TestMultiSegmentMove:
 
     def test_diagonal_move_interpolates_both_axes(self):
         pm = _pm(
-            from_pos=Position(0, 0),
-            to_pos=Position(2, 2),
+            from_pos=Cell(0, 0),
+            to_pos=Cell(2, 2),
             start_time=0,
             checkpoints=(
-                MoveCheckpoint(Position(1, 1), 100),
-                MoveCheckpoint(Position(2, 2), 200),
+                MoveCheckpoint(Cell(1, 1), 100),
+                MoveCheckpoint(Cell(2, 2), 200),
             ),
         )
         row, col = interpolate_position(pm, 50)
@@ -131,12 +132,12 @@ class TestMultiSegmentMove:
 class TestOutOfRangeClamping:
     def setup_method(self):
         self.pm = _pm(
-            from_pos=Position(0, 0),
-            to_pos=Position(0, 2),
+            from_pos=Cell(0, 0),
+            to_pos=Cell(0, 2),
             start_time=1000,
             checkpoints=(
-                MoveCheckpoint(Position(0, 1), 1200),
-                MoveCheckpoint(Position(0, 2), 1400),
+                MoveCheckpoint(Cell(0, 1), 1200),
+                MoveCheckpoint(Cell(0, 2), 1400),
             ),
         )
 
@@ -153,9 +154,9 @@ class TestNoCheckpointData:
     empty. Only the two endpoints are well-defined in this case."""
 
     def test_at_or_before_start_time_is_the_origin(self):
-        pm = PendingMove(piece="wR", from_pos=Position(0, 0), to_pos=Position(0, 3), arrival_time=300)
+        pm = PendingMove(piece="wR", from_pos=Cell(0, 0), to_pos=Cell(0, 3), arrival_time=300)
         assert interpolate_position(pm, 0) == (0.0, 0.0)
 
     def test_at_or_after_arrival_time_is_the_destination(self):
-        pm = PendingMove(piece="wR", from_pos=Position(0, 0), to_pos=Position(0, 3), arrival_time=300)
+        pm = PendingMove(piece="wR", from_pos=Cell(0, 0), to_pos=Cell(0, 3), arrival_time=300)
         assert interpolate_position(pm, 300) == (0.0, 3.0)

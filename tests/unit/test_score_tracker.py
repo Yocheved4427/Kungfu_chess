@@ -23,9 +23,10 @@ unrelated airborne enemy.
 
 from __future__ import annotations
 
-from core.config import PIECE_POINTS
-from core.models import Color, Position
-from engine.board import TextBoard
+from shared.constants import PIECE_POINTS
+from shared.models.color import Color
+from shared.models.cell import Cell
+from shared.models.board import TextBoard
 from engine.game import GameEngine
 from engine.game_state import GameState
 from engine.score_tracker import ScoreTracker
@@ -61,7 +62,7 @@ class TestOverwriteCaptureScoring:
         tracker = ScoreTracker()
 
         tracker.update(_snap(state))
-        engine.attempt_move(state, Position(0, 0), Position(0, 2))
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 2))
         tracker.update(_snap(state))  # still in transit -- no capture yet
         assert tracker.get_score(Color.WHITE) == 0
 
@@ -78,7 +79,7 @@ class TestOverwriteCaptureScoring:
         tracker = ScoreTracker()
 
         tracker.update(_snap(state))
-        engine.attempt_move(state, Position(0, 0), Position(0, 2))
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 2))
         tracker.update(_snap(state))
         engine.tick(state, 2000)
         tracker.update(_snap(state))
@@ -95,10 +96,10 @@ class TestOverwriteCaptureScoring:
         tracker = ScoreTracker()
 
         tracker.update(_snap(state))
-        engine.attempt_move(state, Position(1, 0), Position(0, 0))  # single-step advance
+        engine.attempt_move(state, Cell(1, 0), Cell(0, 0))  # single-step advance
         tracker.update(_snap(state))
         engine.tick(state, 100)  # arrives at row 0 -> promotes to wQ
-        assert state.board.get_piece_at(Position(0, 0)) == "wQ"
+        assert state.board.get_piece_at(Cell(0, 0)) == "wQ"
 
         tracker.update(_snap(state))
         assert tracker.get_score(Color.WHITE) == 0
@@ -111,7 +112,7 @@ class TestOverwriteCaptureScoring:
         tracker = ScoreTracker()
 
         tracker.update(_snap(state))
-        engine.attempt_move(state, Position(0, 0), Position(0, 2))
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 2))
         engine.tick(state, 2000)
         tracker.update(_snap(state))
         assert tracker.get_score(Color.WHITE) == 3
@@ -129,8 +130,8 @@ class TestMultipleCapturesInOneTick:
         tracker = ScoreTracker()
 
         tracker.update(_snap(state))
-        engine.attempt_move(state, Position(0, 0), Position(0, 2))  # wR captures bN
-        engine.attempt_move(state, Position(2, 2), Position(2, 0))  # wR captures bP
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 2))  # wR captures bN
+        engine.attempt_move(state, Cell(2, 2), Cell(2, 0))  # wR captures bP
         tracker.update(_snap(state))
         engine.tick(state, 2000)  # both arrive in the same tick
         tracker.update(_snap(state))
@@ -149,8 +150,8 @@ class TestMultipleCapturesInOneTick:
         tracker = ScoreTracker()
 
         tracker.update(_snap(state))
-        engine.attempt_move(state, Position(0, 0), Position(0, 2))  # wR captures bN
-        engine.attempt_move(state, Position(1, 1), Position(3, 1))  # bR captures wP
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 2))  # wR captures bN
+        engine.attempt_move(state, Cell(1, 1), Cell(3, 1))  # bR captures wP
         tracker.update(_snap(state))
         engine.tick(state, 2000)
         tracker.update(_snap(state))
@@ -230,8 +231,8 @@ class TestAirborneCaptureFalsePositiveGuards:
         tracker = ScoreTracker()
 
         tracker.update(_snap(state))
-        engine.attempt_move(state, Position(0, 0), Position(0, 4))  # bN -> (0,4), 4000ms
-        engine.attempt_move(state, Position(2, 0), Position(0, 0))  # wR -> (0,0), 2000ms
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 4))  # bN -> (0,4), 4000ms
+        engine.attempt_move(state, Cell(2, 0), Cell(0, 0))  # wR -> (0,0), 2000ms
         engine.handle_jump(state, 420, 20)  # wK jumps in place at (0, 4)
         tracker.update(_snap(state))
 
@@ -252,15 +253,15 @@ class TestAirborneCaptureFalsePositiveGuards:
         tracker = ScoreTracker()
 
         tracker.update(_snap(state))
-        engine.attempt_move(state, Position(0, 0), Position(0, 4))  # wR -> (0,4), 4000ms
-        state.board.set_piece_at(Position(0, 2), "wN")  # a friendly appears mid-route
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 4))  # wR -> (0,4), 4000ms
+        state.board.set_piece_at(Cell(0, 2), "wN")  # a friendly appears mid-route
         engine.handle_jump(state, 420, 20)  # bK jumps in place at (0, 4) -- unrelated
         tracker.update(_snap(state))
 
         engine.tick(state, 4000)  # wR stops short at (0,1) -- not a capture
         tracker.update(_snap(state))
 
-        assert state.board.get_piece_at(Position(0, 1)) == "wR"
+        assert state.board.get_piece_at(Cell(0, 1)) == "wR"
         assert tracker.get_score(Color.WHITE) == 0
         assert tracker.get_score(Color.BLACK) == 0
 
@@ -275,14 +276,14 @@ class TestScoreNeverDecreases:
         tracker.update(_snap(state))
         assert tracker.get_score(Color.WHITE) == 0
 
-        engine.attempt_move(state, Position(0, 0), Position(0, 2))  # wR captures bN
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 2))  # wR captures bN
         tracker.update(_snap(state))
         engine.tick(state, 2000)
         tracker.update(_snap(state))
         after_first = tracker.get_score(Color.WHITE)
         assert after_first == 3
 
-        engine.attempt_move(state, Position(2, 2), Position(2, 0))  # wR captures bP
+        engine.attempt_move(state, Cell(2, 2), Cell(2, 0))  # wR captures bP
         tracker.update(_snap(state))
         engine.tick(state, 2000)
         tracker.update(_snap(state))

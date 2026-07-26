@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from core.models import Color, PendingMove, Position
+from shared.models.color import Color
+from shared.models.cell import Cell
+from core.models import PendingMove
 from engine.snapshot import GameSnapshot, PieceSnapshot
 
 # ---------------------------------------------------------------------------
@@ -62,7 +64,7 @@ class CompletedMove:
     time: int
     color: Color
     kind: str
-    destination: Position
+    destination: Cell
 
 
 class MoveHistoryTracker:

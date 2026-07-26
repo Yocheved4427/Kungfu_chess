@@ -32,8 +32,8 @@ passes it explicitly to ``ctrl.handle_click`` / ``engine.handle_jump`` /
 from __future__ import annotations
 
 from controllers.click_controller import ClickController
-from core.models import Position
-from engine.board import TextBoard
+from shared.models.cell import Cell
+from shared.models.board import TextBoard
 from engine.game import GameEngine
 from engine.game_state import GameState
 from input.board_mapper import BoardMapper
@@ -55,13 +55,13 @@ class TestFirstClickSelectsAPiece:
     def test_click_on_a_piece_selects_it(self):
         engine, ctrl, state = _controller(TextBoard(["wK . ."]))
         ctrl.handle_click(state, 0, 0)
-        assert ctrl.selection == Position(0, 0)
+        assert ctrl.selection == Cell(0, 0)
 
     def test_selecting_does_not_touch_the_board(self):
         board = TextBoard(["wK . ."])
         engine, ctrl, state = _controller(board)
         ctrl.handle_click(state, 0, 0)
-        assert board.get_piece_at(Position(0, 0)) == "wK"
+        assert board.get_piece_at(Cell(0, 0)) == "wK"
 
     def test_cannot_select_a_busy_in_transit_piece(self):
         board = TextBoard(["wR . ."])
@@ -106,15 +106,15 @@ class TestSelectedClickForwardsAMoveAttempt:
         ctrl.handle_click(state, 50, 50)    # select wR
         ctrl.handle_click(state, 250, 50)   # attempt move to (0,2)
         assert len(state.pending) == 1
-        assert state.pending[0].to_pos == Position(0, 2)
+        assert state.pending[0].to_pos == Cell(0, 2)
 
     def test_queued_move_does_not_mutate_the_board_yet(self):
         board = TextBoard(["wR . ."])
         engine, ctrl, state = _controller(board, move_duration=1000)
         ctrl.handle_click(state, 50, 50)
         ctrl.handle_click(state, 250, 50)
-        assert board.get_piece_at(Position(0, 0)) == "wR"
-        assert board.get_piece_at(Position(0, 2)) == "."
+        assert board.get_piece_at(Cell(0, 0)) == "wR"
+        assert board.get_piece_at(Cell(0, 2)) == "."
 
     def test_queued_move_applies_on_arrival_tick(self):
         board = TextBoard(["wR . ."])
@@ -122,8 +122,8 @@ class TestSelectedClickForwardsAMoveAttempt:
         ctrl.handle_click(state, 50, 50)
         ctrl.handle_click(state, 250, 50)
         engine.tick(state, 2000)  # 2 cells * 1000ms
-        assert board.get_piece_at(Position(0, 0)) == "."
-        assert board.get_piece_at(Position(0, 2)) == "wR"
+        assert board.get_piece_at(Cell(0, 0)) == "."
+        assert board.get_piece_at(Cell(0, 2)) == "wR"
 
     def test_illegal_move_is_rejected_board_unchanged(self):
         board = TextBoard(["wR bP ."])
@@ -131,7 +131,7 @@ class TestSelectedClickForwardsAMoveAttempt:
         ctrl.handle_click(state, 50, 50)    # select wR
         ctrl.handle_click(state, 250, 50)   # blocked path — illegal
         assert state.pending == []
-        assert board.get_piece_at(Position(0, 0)) == "wR"
+        assert board.get_piece_at(Cell(0, 0)) == "wR"
 
     def test_selection_cleared_after_a_successful_attempt(self):
         board = TextBoard(["wR . ."])
@@ -156,7 +156,7 @@ class TestSelectedClickForwardsAMoveAttempt:
         ctrl.handle_click(state, 50, 50)    # select wR
         ctrl.handle_click(state, 150, 50)   # click enemy bN — capture attempt
         assert len(state.pending) == 1
-        assert state.pending[0].to_pos == Position(0, 1)
+        assert state.pending[0].to_pos == Cell(0, 1)
 
     def test_controller_never_calls_move_validator_itself(self):
         """The controller must not decide legality — verified by giving
@@ -186,7 +186,7 @@ class TestFriendlyReselect:
         engine, ctrl, state = _controller(board)
         ctrl.handle_click(state, 0, 0)      # select wK
         ctrl.handle_click(state, 100, 0)    # click friendly wR — switches, not a move
-        assert ctrl.selection == Position(0, 1)
+        assert ctrl.selection == Cell(0, 1)
         assert state.pending == []
 
     def test_cannot_switch_to_a_busy_friendly(self):
@@ -196,7 +196,7 @@ class TestFriendlyReselect:
         ctrl.handle_click(state, 200, 0)    # queue wR's move -> busy now
         ctrl.handle_click(state, 0, 0)      # select wK
         ctrl.handle_click(state, 100, 0)    # attempt switch to busy wR — blocked
-        assert ctrl.selection == Position(0, 0)
+        assert ctrl.selection == Cell(0, 0)
 
 
 # ===========================================================================
@@ -225,8 +225,8 @@ class TestGameEngineDelegatesToController:
         engine = GameEngine(board, cell_size=100)
         state = GameState(board=board)
         engine.handle_click(state, 0, 0)
-        assert engine.selection == Position(0, 0)
-        assert engine._click_controller.selection == Position(0, 0)
+        assert engine.selection == Cell(0, 0)
+        assert engine._click_controller.selection == Cell(0, 0)
 
     def test_engine_selection_property_is_read_only_view(self):
         board = TextBoard(["wK ."])
@@ -234,4 +234,4 @@ class TestGameEngineDelegatesToController:
         state = GameState(board=board)
         assert engine.selection is None
         engine.handle_click(state, 0, 0)
-        assert engine.selection == Position(0, 0)
+        assert engine.selection == Cell(0, 0)

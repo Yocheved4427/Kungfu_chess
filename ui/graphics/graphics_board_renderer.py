@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING, Dict, Sequence
 import cv2
 
 from asset_loader import AssetLoader
-from core.models import Color, Position
+from shared.models.color import Color
+from shared.models.cell import Cell
 from img import Img
 from input.board_mapper import BoardMapper
 from motion import interpolate_position
@@ -132,7 +133,7 @@ class GraphicsBoardRenderer:
         self._mapper = mapper
         self._show_history_panel = show_history_panel
         self._show_side_panels = show_side_panels
-        self._piece_views: Dict[Position, PieceView] = {}
+        self._piece_views: Dict[Cell, PieceView] = {}
         # NOTE: passes the full absolute path directly (per explicit
         # instruction). cv2.imread cannot open absolute paths containing
         # non-ASCII characters on Windows — this will raise
@@ -144,7 +145,7 @@ class GraphicsBoardRenderer:
         self,
         game_snapshot: "GameSnapshot",
         window_img: Img,
-        selected: Position | None = None,
+        selected: Cell | None = None,
     ) -> None:
         """Draw *game_snapshot*'s board, plus a "SEL" label over the cell
         at *selected* (if any) and a remaining-cooldown label over any
@@ -488,10 +489,10 @@ class GraphicsBoardRenderer:
         A ``PieceView`` for a cell that's no longer occupied is simply
         not carried into the new collection (dropped).
         """
-        new_views: Dict[Position, PieceView] = {}
+        new_views: Dict[Cell, PieceView] = {}
         for row in range(board.num_rows):
             for col in range(board.num_cols):
-                position = Position(row=row, col=col)
+                position = Cell(row=row, col=col)
                 piece = board.get_piece_at(position)
                 if piece is None:
                     continue

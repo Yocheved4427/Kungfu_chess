@@ -16,11 +16,11 @@ from dataclasses import dataclass
 
 
 def _position_dict(pos: object) -> dict:
-    """{"row": int, "col": int} for any Position-shaped object.
+    """{"row": int, "col": int} for any Cell-shaped object.
 
     Duck-typed (reads ``.row``/``.col`` off whatever was actually
-    passed) rather than importing ``core.models.Position`` — every
-    event field that holds a Position is itself typed as ``object`` for
+    passed) rather than importing ``shared.models.cell.Cell`` — every
+    event field that holds a Cell is itself typed as ``object`` for
     exactly this reason (see each field's own comment below), so
     serialization can't need the import either.
     """
@@ -66,8 +66,8 @@ class TimeAdvancedEvent(GameEvent):
 class MoveCompletedEvent(GameEvent):
     """Fired once for each pending move that executes during a ``tick``."""
     piece: str
-    from_pos: object   # Position – typed as object to avoid a cross-layer import
-    to_pos: object     # Position
+    from_pos: object   # Cell – typed as object to avoid a cross-layer import
+    to_pos: object     # Cell
     arrival_time: int
 
     def to_dict(self) -> dict:
@@ -97,7 +97,7 @@ class JumpLandedEvent(GameEvent):
     """Fired when a jump's window elapses with no enemy arrival — the
     piece grounds again, unchanged, on the same cell it jumped from."""
     piece: str
-    pos: object        # Position – typed as object to avoid a cross-layer import
+    pos: object        # Cell – typed as object to avoid a cross-layer import
     land_time: int
 
     def to_dict(self) -> dict:
@@ -115,7 +115,7 @@ class AirborneCaptureEvent(GameEvent):
     cell during the jump window. The defender never moves; the attacker
     is removed outright — it never reaches ``pos``."""
     defender: str
-    pos: object        # Position – the airborne piece's cell
+    pos: object        # Cell – the airborne piece's cell
     attacker: str
 
     def to_dict(self) -> dict:

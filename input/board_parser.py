@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List
 
-from engine.board import AbstractBoard, TextBoard
+from shared.models.board import AbstractBoard, TextBoard
 
 # ---------------------------------------------------------------------------
 # Kung Fu Chess – Board Parser

@@ -10,7 +10,8 @@ for logging assertions (see its own TestResolveCellSize/TestLoadBoard).
 
 from __future__ import annotations
 
-from core.models import Color, Position
+from shared.models.color import Color
+from shared.models.cell import Cell
 from ui.events import (
     AirborneCaptureEvent,
     GameOverEvent,
@@ -26,7 +27,7 @@ class TestSoundTriggerObserver:
     def test_move_completed_logs_the_move_sound(self, caplog):
         obs = SoundTriggerObserver()
         event = MoveCompletedEvent(
-            piece="wP", from_pos=Position(6, 0), to_pos=Position(4, 0), arrival_time=1000
+            piece="wP", from_pos=Cell(6, 0), to_pos=Cell(4, 0), arrival_time=1000
         )
 
         with caplog.at_level("INFO", logger="ui.observers"):
@@ -36,7 +37,7 @@ class TestSoundTriggerObserver:
 
     def test_airborne_capture_logs_the_capture_sound(self, caplog):
         obs = SoundTriggerObserver()
-        event = AirborneCaptureEvent(defender="bP", pos=Position(2, 2), attacker="wN")
+        event = AirborneCaptureEvent(defender="bP", pos=Cell(2, 2), attacker="wN")
 
         with caplog.at_level("INFO", logger="ui.observers"):
             obs.on_event(event)
@@ -74,7 +75,7 @@ class TestSoundTriggerObserver:
         """A jump landing with no capture is silent -- see the class's own
         docstring on why this event isn't in its sound mapping."""
         obs = SoundTriggerObserver()
-        event = JumpLandedEvent(piece="wN", pos=Position(3, 3), land_time=2000)
+        event = JumpLandedEvent(piece="wN", pos=Cell(3, 3), land_time=2000)
 
         with caplog.at_level("INFO", logger="ui.observers"):
             obs.on_event(event)

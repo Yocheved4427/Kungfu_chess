@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from core.models import Position
+from shared.models.cell import Cell
 
 if TYPE_CHECKING:
-    from engine.board import AbstractBoard
+    from shared.models.board import AbstractBoard
 
 # ---------------------------------------------------------------------------
 # Kung Fu Chess – Shared movement geometry
@@ -26,28 +26,28 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-def is_orthogonal(from_pos: Position, to_pos: Position) -> bool:
+def is_orthogonal(from_pos: Cell, to_pos: Cell) -> bool:
     """True iff the move is purely horizontal or purely vertical."""
     dr = to_pos.row - from_pos.row
     dc = to_pos.col - from_pos.col
     return (dr == 0) != (dc == 0)   # exactly one axis moves
 
 
-def is_diagonal(from_pos: Position, to_pos: Position) -> bool:
+def is_diagonal(from_pos: Cell, to_pos: Cell) -> bool:
     """True iff the move is a non-zero-length diagonal."""
     dr = abs(to_pos.row - from_pos.row)
     dc = abs(to_pos.col - from_pos.col)
     return dr == dc and dr > 0
 
 
-def is_knight_shape(from_pos: Position, to_pos: Position) -> bool:
+def is_knight_shape(from_pos: Cell, to_pos: Cell) -> bool:
     """True iff the move is a Knight's L-shape (2-and-1 in either order)."""
     dr = abs(to_pos.row - from_pos.row)
     dc = abs(to_pos.col - from_pos.col)
     return (dr, dc) in {(1, 2), (2, 1)}
 
 
-def is_king_step(from_pos: Position, to_pos: Position) -> bool:
+def is_king_step(from_pos: Cell, to_pos: Cell) -> bool:
     """True iff the move is exactly one step, in any of the 8 directions."""
     dr = abs(to_pos.row - from_pos.row)
     dc = abs(to_pos.col - from_pos.col)
@@ -72,7 +72,7 @@ def pawn_start_row(piece: str, num_rows: int) -> int:
     return num_rows - 2 if piece[0] == "w" else 1
 
 
-def path_clear(board: AbstractBoard, from_pos: Position, to_pos: Position) -> bool:
+def path_clear(board: AbstractBoard, from_pos: Cell, to_pos: Cell) -> bool:
     """Return True iff every square strictly between *from_pos* and
     *to_pos* is empty. Assumes a straight line (orthogonal or diagonal);
     behaviour is undefined otherwise."""
@@ -83,7 +83,7 @@ def path_clear(board: AbstractBoard, from_pos: Position, to_pos: Position) -> bo
     step_c = dc // steps
     r, c = from_pos.row + step_r, from_pos.col + step_c
     while (r, c) != (to_pos.row, to_pos.col):
-        if board.get_piece_at(Position(r, c)) != ".":
+        if board.get_piece_at(Cell(r, c)) != ".":
             return False
         r += step_r
         c += step_c

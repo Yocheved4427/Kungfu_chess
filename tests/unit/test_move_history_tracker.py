@@ -22,8 +22,9 @@ within the same tick.
 
 from __future__ import annotations
 
-from core.models import Color, Position
-from engine.board import TextBoard
+from shared.models.color import Color
+from shared.models.cell import Cell
+from shared.models.board import TextBoard
 from engine.game import GameEngine
 from engine.game_state import GameState
 from engine.move_history_tracker import MoveHistoryTracker
@@ -55,7 +56,7 @@ class TestACompletedMoveIsRecordedExactlyOnce:
         tracker = MoveHistoryTracker()
 
         tracker.update(_snap(state))
-        engine.attempt_move(state, Position(0, 0), Position(0, 2))
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 2))
         tracker.update(_snap(state))  # still in transit -- not recorded yet
         assert tracker.moves == []
 
@@ -66,7 +67,7 @@ class TestACompletedMoveIsRecordedExactlyOnce:
         move = tracker.moves[0]
         assert move.color is Color.WHITE
         assert move.kind == "R"
-        assert move.destination == Position(0, 2)
+        assert move.destination == Cell(0, 2)
         assert move.time == 1000  # the move's own arrival_time
 
     def test_repeated_updates_on_an_unchanged_state_do_not_re_record(self):
@@ -76,7 +77,7 @@ class TestACompletedMoveIsRecordedExactlyOnce:
         tracker = MoveHistoryTracker()
 
         tracker.update(_snap(state))
-        engine.attempt_move(state, Position(0, 0), Position(0, 2))
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 2))
         tracker.update(_snap(state))  # captures it as pending
         engine.tick(state, 1000)
         tracker.update(_snap(state))
@@ -96,19 +97,19 @@ class TestACompletedMoveIsRecordedExactlyOnce:
         tracker = MoveHistoryTracker()
 
         tracker.update(_snap(state))
-        engine.attempt_move(state, Position(0, 0), Position(0, 1))
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 1))
         tracker.update(_snap(state))
         engine.tick(state, 500)
         tracker.update(_snap(state))
 
-        engine.attempt_move(state, Position(0, 1), Position(0, 2))
+        engine.attempt_move(state, Cell(0, 1), Cell(0, 2))
         tracker.update(_snap(state))
         engine.tick(state, 500)
         tracker.update(_snap(state))
 
         assert len(tracker.moves) == 2
-        assert tracker.moves[0].destination == Position(0, 1)
-        assert tracker.moves[1].destination == Position(0, 2)
+        assert tracker.moves[0].destination == Cell(0, 1)
+        assert tracker.moves[1].destination == Cell(0, 2)
 
     def test_several_moves_completing_in_the_same_tick_are_all_recorded_in_order(self):
         """Uses two different move_durations so the moves have distinct
@@ -121,15 +122,15 @@ class TestACompletedMoveIsRecordedExactlyOnce:
         tracker = MoveHistoryTracker()
 
         tracker.update(_snap(state))
-        engine.attempt_move(state, Position(0, 0), Position(0, 2))  # arrival_time=2000
-        engine.attempt_move(state, Position(2, 1), Position(2, 0))  # arrival_time=1000
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 2))  # arrival_time=2000
+        engine.attempt_move(state, Cell(2, 1), Cell(2, 0))  # arrival_time=1000
         tracker.update(_snap(state))
         engine.tick(state, 2000)
         tracker.update(_snap(state))
 
         assert [m.time for m in tracker.moves] == [1000, 2000]
-        assert tracker.moves[0].destination == Position(2, 0)
-        assert tracker.moves[1].destination == Position(0, 2)
+        assert tracker.moves[0].destination == Cell(2, 0)
+        assert tracker.moves[1].destination == Cell(0, 2)
 
 
 class TestInterruptedMovesAreNotRecorded:
@@ -161,13 +162,13 @@ class TestInterruptedMovesAreNotRecorded:
         tracker = MoveHistoryTracker()
 
         tracker.update(_snap(state))
-        engine.attempt_move(state, Position(0, 0), Position(0, 4))  # wR -> (0,4), 4000ms
-        state.board.set_piece_at(Position(0, 2), "wN")  # a friendly appears mid-route
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 4))  # wR -> (0,4), 4000ms
+        state.board.set_piece_at(Cell(0, 2), "wN")  # a friendly appears mid-route
         tracker.update(_snap(state))
         engine.tick(state, 4000)  # stops short at (0,1)
         tracker.update(_snap(state))
 
-        assert state.board.get_piece_at(Position(0, 1)) == "wR"
+        assert state.board.get_piece_at(Cell(0, 1)) == "wR"
         assert tracker.moves == []
 
     def test_a_move_dropped_as_invalid_is_not_recorded(self):
@@ -181,14 +182,14 @@ class TestInterruptedMovesAreNotRecorded:
         tracker = MoveHistoryTracker()
 
         tracker.update(_snap(state))
-        engine.attempt_move(state, Position(0, 0), Position(0, 1))  # wP -> (0,1), slow
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 1))  # wP -> (0,1), slow
         # A faster enemy captures wP at its own origin before its move resolves.
-        engine.try_move(state, Position(1, 0), Position(0, 0))
+        engine.try_move(state, Cell(1, 0), Cell(0, 0))
         tracker.update(_snap(state))
         engine.tick(state, 1000)
         tracker.update(_snap(state))
 
-        assert state.board.get_piece_at(Position(0, 1)) == "."
+        assert state.board.get_piece_at(Cell(0, 1)) == "."
         assert tracker.moves == []
 
 
@@ -200,10 +201,10 @@ class TestPawnPromotionIsRecordedAsCompleted:
         tracker = MoveHistoryTracker()
 
         tracker.update(_snap(state))
-        engine.attempt_move(state, Position(1, 0), Position(0, 0))
+        engine.attempt_move(state, Cell(1, 0), Cell(0, 0))
         tracker.update(_snap(state))
         engine.tick(state, 100)  # arrives at row 0 -> promotes to wQ
-        assert state.board.get_piece_at(Position(0, 0)) == "wQ"
+        assert state.board.get_piece_at(Cell(0, 0)) == "wQ"
 
         tracker.update(_snap(state))
 
@@ -211,7 +212,7 @@ class TestPawnPromotionIsRecordedAsCompleted:
         move = tracker.moves[0]
         assert move.color is Color.WHITE
         assert move.kind == "Q"
-        assert move.destination == Position(0, 0)
+        assert move.destination == Cell(0, 0)
 
     def test_a_non_promoting_pawn_move_keeps_kind_p(self):
         # White advances toward decreasing row (see engine.geometry's
@@ -223,7 +224,7 @@ class TestPawnPromotionIsRecordedAsCompleted:
         tracker = MoveHistoryTracker()
 
         tracker.update(_snap(state))
-        engine.attempt_move(state, Position(2, 0), Position(1, 0))
+        engine.attempt_move(state, Cell(2, 0), Cell(1, 0))
         tracker.update(_snap(state))
         engine.tick(state, 100)
         tracker.update(_snap(state))

@@ -16,7 +16,7 @@ from asset_loader import AssetLoader
 from graphics_board_renderer import BOARD_MARGIN_PX, SIDE_PANEL_WIDTH_PX
 from img import Img
 
-from core.models import Color
+from shared.models.color import Color
 from dashboard_view import run_dashboard_screen
 from input.board_mapper import BoardMapper
 from logger_config import setup_logging

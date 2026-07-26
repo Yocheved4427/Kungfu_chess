@@ -4,8 +4,8 @@ import argparse
 import logging
 import pathlib
 
-from core.config import VALID_PIECE_CHARS
-from engine.board import AbstractBoard, TextBoard
+from shared.constants import VALID_PIECE_CHARS
+from shared.models.board import AbstractBoard, TextBoard
 from engine.board_validator import BoardValidationError, BoardValidator
 from engine.game import GameEngine
 from engine.game_state import GameState

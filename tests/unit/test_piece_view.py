@@ -31,8 +31,8 @@ from img import Img  # noqa: E402
 from piece_state_machine import PieceStateMachine  # noqa: E402
 from piece_view import PieceView  # noqa: E402
 
-from core.models import Position  # noqa: E402
-from engine.board import TextBoard  # noqa: E402
+from shared.models.cell import Cell  # noqa: E402
+from shared.models.board import TextBoard  # noqa: E402
 from engine.game import GameEngine  # noqa: E402
 from engine.game_state import GameState  # noqa: E402
 from engine.snapshot import GameSnapshot, PieceSnapshot  # noqa: E402
@@ -48,7 +48,7 @@ def _piece_view(piece_code: str = "wK") -> PieceView:
     return PieceView(PieceStateMachine(states, start_state="idle"))
 
 
-def _snapshot(position: Position, **status) -> PieceSnapshot:
+def _snapshot(position: Cell, **status) -> PieceSnapshot:
     return PieceSnapshot.from_piece("wK", position, **status)
 
 
@@ -61,38 +61,38 @@ def _renderer() -> GraphicsBoardRenderer:
 class TestPieceViewSync:
     def test_freshly_created_view_starts_idle_when_nothing_is_active(self):
         view = _piece_view()
-        view.sync(_snapshot(Position(0, 0)))
+        view.sync(_snapshot(Cell(0, 0)))
         assert view._machine.current_state == "idle"
 
     def test_freshly_created_view_enters_move_if_already_in_transit(self):
         view = _piece_view()
-        view.sync(_snapshot(Position(0, 0), is_in_transit=True))
+        view.sync(_snapshot(Cell(0, 0), is_in_transit=True))
         assert view._machine.current_state == "move"
 
     def test_freshly_created_view_enters_jump_if_already_airborne(self):
         view = _piece_view()
-        view.sync(_snapshot(Position(0, 0), is_airborne=True))
+        view.sync(_snapshot(Cell(0, 0), is_airborne=True))
         assert view._machine.current_state == "jump"
 
     def test_transit_starting_enters_move(self):
         view = _piece_view()
-        view.sync(_snapshot(Position(0, 0)))
-        view.sync(_snapshot(Position(0, 0), is_in_transit=True))
+        view.sync(_snapshot(Cell(0, 0)))
+        view.sync(_snapshot(Cell(0, 0), is_in_transit=True))
         assert view._machine.current_state == "move"
 
     def test_transit_ending_follows_moves_own_next_state_when_finished(self):
         view = _piece_view()
-        view.sync(_snapshot(Position(0, 0), is_in_transit=True))
+        view.sync(_snapshot(Cell(0, 0), is_in_transit=True))
         assert view._machine.current_state == "move"
 
         move_next_state = view._machine.states["move"].next_state_when_finished
-        view.sync(_snapshot(Position(0, 0)))  # transit ends
+        view.sync(_snapshot(Cell(0, 0)))  # transit ends
         assert view._machine.current_state == move_next_state
 
     def test_airborne_starting_enters_jump(self):
         view = _piece_view()
-        view.sync(_snapshot(Position(0, 0)))
-        view.sync(_snapshot(Position(0, 0), is_airborne=True))
+        view.sync(_snapshot(Cell(0, 0)))
+        view.sync(_snapshot(Cell(0, 0), is_airborne=True))
         assert view._machine.current_state == "jump"
 
     def test_staying_in_the_same_status_does_not_retrigger_a_transition(self):
@@ -100,10 +100,10 @@ class TestPieceViewSync:
         transition_to() each time — that would reset _entered_at and
         restart the animation from frame 0 on every render."""
         view = _piece_view()
-        view.sync(_snapshot(Position(0, 0), is_in_transit=True))
+        view.sync(_snapshot(Cell(0, 0), is_in_transit=True))
         entered_at_after_first_sync = view._machine._entered_at
 
-        view.sync(_snapshot(Position(0, 0), is_in_transit=True))
+        view.sync(_snapshot(Cell(0, 0), is_in_transit=True))
         assert view._machine._entered_at == entered_at_after_first_sync
         assert view._machine.current_state == "move"
 
@@ -116,10 +116,10 @@ class TestGraphicsBoardRendererPieceViewLifecycle:
         screen = Img()
 
         renderer.render(GameSnapshot.from_state(state), screen)
-        view_after_first_render = renderer._piece_views[Position(0, 0)]
+        view_after_first_render = renderer._piece_views[Cell(0, 0)]
 
         renderer.render(GameSnapshot.from_state(state), screen)
-        view_after_second_render = renderer._piece_views[Position(0, 0)]
+        view_after_second_render = renderer._piece_views[Cell(0, 0)]
 
         # Same PieceView object kept alive, not recreated ...
         assert view_after_second_render is view_after_first_render
@@ -134,15 +134,15 @@ class TestGraphicsBoardRendererPieceViewLifecycle:
         screen = Img()
 
         renderer.render(GameSnapshot.from_state(state), screen)
-        engine.attempt_move(state, Position(0, 0), Position(0, 1))
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 1))
 
         renderer.render(GameSnapshot.from_state(state), screen)
-        view = renderer._piece_views[Position(0, 0)]
+        view = renderer._piece_views[Cell(0, 0)]
         assert view._machine.current_state == "move"
         entered_at = view._machine._entered_at
 
         renderer.render(GameSnapshot.from_state(state), screen)
-        same_view = renderer._piece_views[Position(0, 0)]
+        same_view = renderer._piece_views[Cell(0, 0)]
         assert same_view is view
         assert same_view._machine.current_state == "move"
         assert same_view._machine._entered_at == entered_at  # not restarted
@@ -156,8 +156,8 @@ class TestGraphicsBoardRendererPieceViewLifecycle:
         assert renderer._piece_views == {}  # nothing rendered yet
         renderer.render(GameSnapshot.from_state(state), screen)
 
-        assert Position(0, 0) in renderer._piece_views
-        view = renderer._piece_views[Position(0, 0)]
+        assert Cell(0, 0) in renderer._piece_views
+        view = renderer._piece_views[Cell(0, 0)]
         assert view.snapshot.color.value == "w"
         assert view.snapshot.kind == "K"
         assert view._machine.current_state == "idle"
@@ -175,14 +175,14 @@ class TestGraphicsBoardRendererPieceViewLifecycle:
         screen = Img()
 
         renderer.render(GameSnapshot.from_state(state), screen)
-        engine.attempt_move(state, Position(0, 0), Position(0, 1))
+        engine.attempt_move(state, Cell(0, 0), Cell(0, 1))
         renderer.render(GameSnapshot.from_state(state), screen)
 
         engine.tick(state, 500)  # move arrives
         renderer.render(GameSnapshot.from_state(state), screen)
 
-        assert Position(0, 0) not in renderer._piece_views
-        new_view = renderer._piece_views[Position(0, 1)]
+        assert Cell(0, 0) not in renderer._piece_views
+        new_view = renderer._piece_views[Cell(0, 1)]
         assert new_view._machine.current_state == "idle"
 
     def test_a_fresh_view_is_created_when_a_different_piece_occupies_the_cell(self):
@@ -201,7 +201,7 @@ class TestGraphicsBoardRendererPieceViewLifecycle:
         engine.tick(state, 1000)            # capture lands
 
         renderer.render(GameSnapshot.from_state(state), screen)
-        view = renderer._piece_views[Position(1, 0)]
+        view = renderer._piece_views[Cell(1, 0)]
         assert view.snapshot.color.value == "w"
         assert view.snapshot.kind == "R"
         assert view._machine.current_state == "idle"

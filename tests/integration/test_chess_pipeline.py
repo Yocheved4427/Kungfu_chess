@@ -35,8 +35,8 @@ import io
 
 import pytest
 
-from core.config import MOVE_DURATION, VALID_PIECE_CHARS
-from core.models import Position
+from shared.constants import MOVE_DURATION, VALID_PIECE_CHARS
+from shared.models.cell import Cell
 from engine.board_validator import BoardValidationError, BoardValidator
 from engine.game import GameEngine
 from input.board_parser import BoardParser

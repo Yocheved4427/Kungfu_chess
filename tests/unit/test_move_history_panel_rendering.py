@@ -31,8 +31,9 @@ from graphics_board_renderer import (  # noqa: E402
 )
 from img import Img  # noqa: E402
 
-from core.models import Color, Position  # noqa: E402
-from engine.board import TextBoard  # noqa: E402
+from shared.models.color import Color  # noqa: E402
+from shared.models.cell import Cell  # noqa: E402
+from shared.models.board import TextBoard  # noqa: E402
 from engine.game_state import GameState  # noqa: E402
 from engine.move_history_tracker import CompletedMove  # noqa: E402
 from engine.snapshot import GameSnapshot  # noqa: E402
@@ -83,7 +84,7 @@ class TestPanelCanvasSizing:
         renderer.render(GameSnapshot.from_state(state), screen)
         before = screen.img.copy()
 
-        moves = [CompletedMove(time=1000, color=Color.WHITE, kind="R", destination=Position(0, 2))]
+        moves = [CompletedMove(time=1000, color=Color.WHITE, kind="R", destination=Cell(0, 2))]
         renderer.render_move_history(screen, moves)
 
         assert np.array_equal(screen.img, before)

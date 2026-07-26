@@ -4,9 +4,10 @@ import logging
 from typing import List
 
 from controllers.click_controller import ClickController
-from core.config import COOLDOWN_DURATION, JUMP_DURATION, MOVE_DURATION
-from core.models import MoveCheckpoint, PendingJump, PendingMove, Position, same_color
-from engine.board import AbstractBoard
+from shared.constants import COOLDOWN_DURATION, JUMP_DURATION, MOVE_DURATION
+from shared.models.cell import Cell
+from core.models import MoveCheckpoint, PendingJump, PendingMove, same_color
+from shared.models.board import AbstractBoard
 from engine.board_renderer import BoardRenderer, TextBoardRenderer
 from engine.game_over import GameOverRule, KingCaptureRule
 from engine.game_state import GameState
@@ -266,7 +267,7 @@ class GameEngine:
         """
         self._click_controller.handle_click(state, x, y)
 
-    def is_selectable(self, state: GameState, pos: Position) -> bool:
+    def is_selectable(self, state: GameState, pos: Cell) -> bool:
         """True iff *pos* holds a piece that can currently be selected in *state*.
 
         A piece is selectable iff it exists and isn't busy (mid-move,
@@ -278,7 +279,7 @@ class GameEngine:
         piece = state.board.get_piece_at(pos)
         return piece is not None and piece != "." and not self._is_busy(state, pos)
 
-    def attempt_move(self, state: GameState, from_pos: Position, to_pos: Position) -> bool:
+    def attempt_move(self, state: GameState, from_pos: Cell, to_pos: Cell) -> bool:
         """The real-time pipeline's move attempt against *state* — queues
         rather than applies. This is what ``ClickController`` forwards
         every move attempt to behind ``handle_click``.
@@ -320,7 +321,7 @@ class GameEngine:
         return True
 
     def _build_checkpoints(
-        self, from_pos: Position, to_pos: Position, queued_time: int
+        self, from_pos: Cell, to_pos: Cell, queued_time: int
     ) -> "tuple[MoveCheckpoint, ...]":
         """Break a move from *from_pos* to *to_pos*, queued at
         *queued_time*, into one ``MoveCheckpoint`` per cell along its
@@ -340,7 +341,7 @@ class GameEngine:
             for i, cell in enumerate(cells)
         )
 
-    def try_move(self, state: GameState, from_pos: Position, to_pos: Position) -> MoveResult:
+    def try_move(self, state: GameState, from_pos: Cell, to_pos: Cell) -> MoveResult:
         """Synchronous, ``RuleEngine``-backed move against *state* —
         GameEngine's plain service-layer entry point, distinct from the
         real-time pipeline. Independently usable and fully tested, but
@@ -609,7 +610,7 @@ class GameEngine:
 
         self._land(state, pm, pm.to_pos, checkpoint.due_time)
 
-    def _land(self, state: GameState, pm: PendingMove, pos: Position, arrival_time: int) -> None:
+    def _land(self, state: GameState, pm: PendingMove, pos: Cell, arrival_time: int) -> None:
         """Relocate ``pm.piece`` from ``pm.from_pos`` to *pos* and fire the
         landing side effects — shared by both ways a move can conclude:
         reaching its final destination, or stopping early at an
@@ -643,21 +644,21 @@ class GameEngine:
     # access) stays on GameEngine, and takes state explicitly.
 
     @property
-    def selection(self) -> Position | None:
+    def selection(self) -> Cell | None:
         """Currently selected cell, if any — owned by ``ClickController``
         (a UI/interaction concern, not part of any ``GameState``);
         exposed here read-only for callers/tests that inspect it."""
         return self._click_controller.selection
 
-    def is_in_transit(self, state: GameState, pos: Position) -> bool:
+    def is_in_transit(self, state: GameState, pos: Cell) -> bool:
         """Return True if *pos* is the origin of a move in *state* that has not yet arrived."""
         return any(pm.from_pos == pos for pm in state.pending)
 
-    def is_airborne(self, state: GameState, pos: Position) -> bool:
+    def is_airborne(self, state: GameState, pos: Cell) -> bool:
         """Return True if the piece at *pos* is currently mid-jump in *state*."""
         return self._airborne_at(state, pos) is not None
 
-    def is_in_cooldown(self, state: GameState, pos: Position) -> bool:
+    def is_in_cooldown(self, state: GameState, pos: Cell) -> bool:
         """Return True if *pos* is still cooling down after a landing in *state*.
 
         Set whenever a move (full arrival or a friendly-block stop-short)
@@ -671,7 +672,7 @@ class GameEngine:
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _is_busy(self, state: GameState, pos: Position) -> bool:
+    def _is_busy(self, state: GameState, pos: Cell) -> bool:
         """Return True if the piece at *pos* is committed to another
         action — already moving, already airborne, or still cooling down
         from its last landing — and so cannot be selected, redirected, or
@@ -682,18 +683,18 @@ class GameEngine:
             or self.is_in_cooldown(state, pos)
         )
 
-    def _set_cooldown(self, state: GameState, pos: Position) -> None:
+    def _set_cooldown(self, state: GameState, pos: Cell) -> None:
         """Start (or restart) *pos*'s cooldown window in *state* from the current time."""
         state.cooldowns[pos] = state.current_time + self._cooldown_duration
 
-    def _airborne_at(self, state: GameState, pos: Position) -> PendingJump | None:
+    def _airborne_at(self, state: GameState, pos: Cell) -> PendingJump | None:
         """Return the active ``PendingJump`` at *pos* in *state*, if any."""
         for pj in state.airborne:
             if pj.pos == pos:
                 return pj
         return None
 
-    def _maybe_promote(self, state: GameState, piece: str, pos: Position) -> None:
+    def _maybe_promote(self, state: GameState, piece: str, pos: Cell) -> None:
         """Promote a Pawn to a Queen the instant it reaches the back rank.
 
         White promotes on row 0 (the row it advances toward); Black on
@@ -751,7 +752,7 @@ class GameEngine:
         return same_color(piece_a, piece_b)
 
     @staticmethod
-    def _lane(from_pos: Position, to_pos: Position) -> tuple[str, int, int] | None:
+    def _lane(from_pos: Cell, to_pos: Cell) -> tuple[str, int, int] | None:
         """Return the (axis, lo, hi) lane a straight move travels through.
 
         A horizontal move occupies every column between ``from_pos`` and
@@ -768,7 +769,7 @@ class GameEngine:
         return None
 
     def _route_conflicts(
-        self, state: GameState, piece: str, from_pos: Position, to_pos: Position
+        self, state: GameState, piece: str, from_pos: Cell, to_pos: Cell
     ) -> bool:
         """Return True if this move's lane overlaps an opposite-colour piece
         already in transit along the same lane in *state*.
