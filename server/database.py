@@ -1,28 +1,39 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
-import secrets
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Iterator, Sequence
+
+import bcrypt
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Kung Fu Chess – Persistence Layer (SQLite)
 # ---------------------------------------------------------------------------
-# Standalone data-access layer for the server: user accounts (salted,
+# Standalone data-access layer for the server: user accounts (bcrypt-
 # hashed passwords — see _hash_password/_verify_password) and completed-
 # game history. Deliberately knows nothing about chess rules, the
 # WebSocket protocol, or GameEngine/GameState — it only reads and writes
-# rows. The caller (server/server.py, or whatever drives a match) owns
-# move validation and ELO *calculation*; this module only *persists*
-# whatever values it's given (see UserRepository.update_elo's own
-# docstring) — same "decide vs. do" split this codebase already draws
-# elsewhere (e.g. realtime.collision_resolver decides, engine.game does).
+# rows. The caller (server/server.py, login_view.py, or whatever drives
+# a match) owns move validation and ELO *calculation*; this module only
+# *persists* whatever values it's given (see UserRepository.update_elo's
+# own docstring) — same "decide vs. do" split this codebase already
+# draws elsewhere (e.g. realtime.collision_resolver decides, engine.game
+# does).
+#
+# Two ways to use this module:
+#   * UserRepository / GameHistoryRepository — the repository objects,
+#     for a caller that wants to construct one and reuse it.
+#   * register_user() / authenticate_user() / save_game_result() /
+#     update_elo() — thin module-level function wrappers around the
+#     same two repositories, for a caller (e.g. login_view.py) that
+#     would rather call a plain function than construct a repository
+#     object. Both call the same underlying SQL — pick whichever suits
+#     the call site, there's no behavioural difference between them.
 #
 # Every public method opens its own short-lived connection via
 # _connection() rather than holding one open for the module's lifetime —
@@ -32,12 +43,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DEFAULT_DB_PATH = "kungfu_chess.db"
-
-# PBKDF2-HMAC-SHA256 iteration count — OWASP's 2023 minimum recommendation
-# for this specific algorithm. Deliberately not sha256(password) alone,
-# which has no per-user salt and is fast enough to brute-force at scale.
-_PBKDF2_ITERATIONS = 260_000
-_SALT_BYTES = 16
 
 
 class UsernameAlreadyExistsError(Exception):
@@ -110,30 +115,30 @@ def _connection(db_path: str) -> Iterator[sqlite3.Connection]:
 # Password hashing
 # ---------------------------------------------------------------------------
 
-def _hash_password(password: str, salt: bytes | None = None) -> str:
-    """Return ``"<salt_hex>$<hash_hex>"`` for *password*.
+def _hash_password(password: str) -> str:
+    """Return a bcrypt hash of *password*, as a ``str`` for storage in the
+    TEXT ``password_hash`` column.
 
-    PBKDF2-HMAC-SHA256 with a fresh random salt, unless *salt* is given
-    (verification against an existing hash — see ``_verify_password``,
-    which reuses the ORIGINAL salt rather than generating a new one).
+    ``bcrypt.gensalt()`` generates a fresh random salt per call and
+    embeds it in the returned hash itself (unlike this module's previous
+    PBKDF2-based scheme, no separate salt column/parameter is needed —
+    ``_verify_password`` recovers it from *stored_hash* automatically).
+
+    Note: bcrypt only considers the first 72 BYTES of the input — a
+    documented limitation of the algorithm itself, irrelevant for any
+    realistic password.
     """
-    if salt is None:
-        salt = secrets.token_bytes(_SALT_BYTES)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, _PBKDF2_ITERATIONS)
-    return f"{salt.hex()}${digest.hex()}"
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def _verify_password(password: str, stored_hash: str) -> bool:
-    """True iff *password*, hashed with the salt embedded in
-    *stored_hash*, reproduces *stored_hash* exactly.
+    """True iff *password* matches *stored_hash*.
 
-    Uses ``secrets.compare_digest`` (constant-time) rather than ``==``,
-    so how many leading bytes matched can't leak via a timing side-channel.
+    ``bcrypt.checkpw`` extracts the original salt embedded in
+    *stored_hash* and compares in constant time internally — no
+    separate ``secrets.compare_digest`` call needed here.
     """
-    salt_hex, _, _ = stored_hash.partition("$")
-    salt = bytes.fromhex(salt_hex)
-    candidate = _hash_password(password, salt=salt)
-    return secrets.compare_digest(candidate, stored_hash)
+    return bcrypt.checkpw(password.encode("utf-8"), stored_hash.encode("utf-8"))
 
 
 # ---------------------------------------------------------------------------
@@ -349,6 +354,71 @@ class GameHistoryRepository:
             moves=json.loads(row["moves_json"]) if row["moves_json"] else [],
             ended_at=row["ended_at"],
         )
+
+
+# ---------------------------------------------------------------------------
+# Function-style API
+# ---------------------------------------------------------------------------
+# Thin wrappers around UserRepository/GameHistoryRepository for a caller
+# (e.g. login_view.py) that wants plain functions rather than repository
+# objects. Each constructs a fresh, short-lived repository per call
+# rather than holding one at module scope -- consistent with every
+# method above opening its own short-lived connection (see
+# _connection's own docstring for why).
+# ---------------------------------------------------------------------------
+
+def register_user(username: str, password: str, db_path: str = DEFAULT_DB_PATH) -> bool:
+    """Register a new user. Returns True on success, False if *username*
+    is already taken.
+
+    The non-raising sibling of ``UserRepository.register()`` — for a
+    caller (e.g. a GUI button handler) that would rather branch on a
+    bool than catch ``UsernameAlreadyExistsError``.
+    """
+    try:
+        UserRepository(db_path).register(username, password)
+        return True
+    except UsernameAlreadyExistsError:
+        return False
+
+
+def authenticate_user(username: str, password: str, db_path: str = DEFAULT_DB_PATH) -> dict | None:
+    """Return the user's profile as a plain dict if *username*/*password*
+    are valid, else None.
+
+    Deliberately omits ``password_hash`` from the returned dict —
+    nothing downstream of a successful login has any legitimate reason
+    to hold onto it. Keys: ``user_id``, ``username``, ``elo_rating``,
+    ``created_at``.
+    """
+    user = UserRepository(db_path).authenticate(username, password)
+    if user is None:
+        return None
+    return {
+        "user_id": user.user_id,
+        "username": user.username,
+        "elo_rating": user.elo_rating,
+        "created_at": user.created_at,
+    }
+
+
+def save_game_result(
+    game_id: str,
+    white_player_id: int,
+    black_player_id: int,
+    winner_id: int | None,
+    moves: Sequence[dict],
+    db_path: str = DEFAULT_DB_PATH,
+) -> None:
+    """Persist one completed game — see ``GameHistoryRepository.save_game``."""
+    GameHistoryRepository(db_path).save_game(
+        game_id, white_player_id, black_player_id, winner_id, moves
+    )
+
+
+def update_elo(user_id: int, elo_rating: int, db_path: str = DEFAULT_DB_PATH) -> None:
+    """Persist *user_id*'s new ELO rating — see ``UserRepository.update_elo``."""
+    UserRepository(db_path).update_elo(user_id, elo_rating)
 
 
 if __name__ == "__main__":

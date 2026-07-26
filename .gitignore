@@ -15,6 +15,10 @@ env/
 .coverage
 htmlcov/
 
+# Local SQLite database (user accounts/password hashes, game history --
+# never commit real user data)
+*.db
+
 # Distribution / packaging
 dist/
 build/
