@@ -421,6 +421,25 @@ def update_elo(user_id: int, elo_rating: int, db_path: str = DEFAULT_DB_PATH) ->
     UserRepository(db_path).update_elo(user_id, elo_rating)
 
 
+def get_player_stats(user_id: int, db_path: str = DEFAULT_DB_PATH) -> dict:
+    """Aggregate *user_id*'s completed-game record from ``game_history``:
+    ``games_played``, ``wins``, ``losses``, ``draws``.
+
+    Derived entirely from ``GameHistoryRepository.get_games_for_player``
+    — there's no separate running-totals table, so this recomputes from
+    the full game log every call. All zero for a player with no
+    completed games yet — in particular, this will read as all-zero for
+    every player until something actually calls ``save_game_result()``
+    when a game ends (not yet wired into main_gui.py's game loop as of
+    this writing).
+    """
+    games = GameHistoryRepository(db_path).get_games_for_player(user_id)
+    wins = sum(1 for g in games if g.winner_id == user_id)
+    draws = sum(1 for g in games if g.winner_id is None)
+    losses = len(games) - wins - draws
+    return {"games_played": len(games), "wins": wins, "losses": losses, "draws": draws}
+
+
 if __name__ == "__main__":
     init_db()
     print(f"Database ready at {DEFAULT_DB_PATH}")

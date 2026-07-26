@@ -16,6 +16,7 @@ from asset_loader import AssetLoader
 from graphics_board_renderer import BOARD_MARGIN_PX, SIDE_PANEL_WIDTH_PX
 from img import Img
 
+from dashboard_view import run_dashboard_screen
 from input.board_mapper import BoardMapper
 from logger_config import setup_logging
 from login_view import run_login_screen
@@ -30,26 +31,52 @@ BOARD_PATH = ASSETS_ROOT / "board.png"
 PIECES_ROOT = ASSETS_ROOT / "pieces3"
 
 
+def _login_and_confirm(prompt: str, exclude_user_id: "int | None" = None) -> "dict | None":
+    """Log a player in, show their dashboard, and keep looping back to a
+    fresh login if they log out from it — the one place both
+    login_view.py and dashboard_view.py's window lifecycles are
+    sequenced, so main() itself stays a plain "call this, get a user or
+    None back" composition.
+
+    Returns the confirmed user profile (dashboard's "Start New Game")
+    once ready to play, or None if the player cancelled (Esc) at either
+    the login or the dashboard screen — main() treats both identically:
+    abort startup, no game window ever opens.
+    """
+    while True:
+        user = run_login_screen(prompt=prompt, exclude_user_id=exclude_user_id)
+        if user is None:
+            return None
+
+        action = run_dashboard_screen(user)
+        if action == "start":
+            return user
+        if action is None:
+            return None
+        # action == "logout" -- loop back to a fresh login screen.
+
+
 def main():
     setup_logging()
     args = _parse_args()
 
-    # Login gate: the game itself (GameEngine, AssetLoader, the board
-    # window) is only ever initialized below this point, and only once
-    # every required login has actually succeeded -- see login_view.py's
-    # own module docstring for why this is a separate cv2 window rather
-    # than a second GUI toolkit. --two-player needs one login per side
-    # (White, then Black); Black is barred from logging in as the same
-    # account White just used (exclude_user_id) so game_history's
-    # white_player_id/black_player_id can never both point at one user.
-    # Cancelling any login (Esc) aborts startup entirely -- no game
-    # window is ever opened.
+    # Login + dashboard gate: the game itself (GameEngine, AssetLoader,
+    # the board window) is only ever initialized below this point, and
+    # only once every required player has logged in AND confirmed
+    # "Start New Game" from their own dashboard -- see login_view.py's
+    # and dashboard_view.py's own module docstrings for why these are
+    # separate cv2 windows rather than a second GUI toolkit.
+    # --two-player needs one login+dashboard pass per side (White, then
+    # Black); Black is barred from logging in as the same account White
+    # just used (exclude_user_id) so game_history's white_player_id/
+    # black_player_id can never both point at one user. Cancelling any
+    # login or dashboard (Esc) aborts startup entirely.
     if args.two_player:
-        white_user = run_login_screen(prompt="White: log in or register")
+        white_user = _login_and_confirm(prompt="White: log in or register")
         if white_user is None:
             logger.info("Login cancelled -- exiting")
             return
-        black_user = run_login_screen(
+        black_user = _login_and_confirm(
             prompt="Black: log in or register", exclude_user_id=white_user["user_id"]
         )
         if black_user is None:
@@ -60,7 +87,7 @@ def main():
             white_user["username"], black_user["username"],
         )
     else:
-        player_user = run_login_screen(prompt="Log in or register to play")
+        player_user = _login_and_confirm(prompt="Log in or register to play")
         if player_user is None:
             logger.info("Login cancelled -- exiting")
             return
@@ -107,7 +134,10 @@ def main():
     screen = Img()
 
     if args.two_player:
-        _run_two_player(args, two_player_mapper, board_size, asset_loader, screen, pending_clicks)
+        _run_two_player(
+            args, two_player_mapper, board_size, asset_loader, screen, pending_clicks,
+            white_username=white_user["username"], black_username=black_user["username"],
+        )
     else:
         _run_single_player(
             args, single_player_mapper, board_size, asset_loader, screen, pending_clicks

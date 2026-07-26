@@ -221,10 +221,23 @@ class GraphicsBoardRenderer:
             self._draw_overlay_label(window_img, piece, position == selected, x, y)
 
     def render_scores(
-        self, window_img: Img, white_score: int, black_score: int
+        self,
+        window_img: Img,
+        white_score: int,
+        black_score: int,
+        white_label: str = "White",
+        black_label: str = "Black",
     ) -> None:
         """Draw both players' cumulative capture scores in the top
         corners of *window_img* — White top-left, Black top-right.
+
+        *white_label*/*black_label* default to "White"/"Black" (today's
+        unchanged behaviour, and what single-player/hot-seat mode still
+        uses — there's no second logged-in identity there to label the
+        other side with). ``--two-player`` mode passes each side's own
+        logged-in username instead (see ``main_gui.py``/``ui.game_loop``),
+        since that mode has two distinct accounts to attribute White and
+        Black to.
 
         A separate call from ``render()`` rather than folded into it:
         ``render()``'s contract (one ``GameSnapshot`` in, the board drawn)
@@ -233,7 +246,7 @@ class GraphicsBoardRenderer:
         animation state involved, just two ``Img.put_text`` calls.
         """
         white_x, white_y = 10, 30
-        black_text = f"Black: {black_score}"
+        black_text = f"{black_label}: {black_score}"
         # Right-aligned against the BOARD's own width specifically (not
         # window_img's, which is wider than the board whenever
         # show_history_panel reserves extra space to the right) so this
@@ -243,7 +256,7 @@ class GraphicsBoardRenderer:
         black_x = board_width - 10 - len(black_text) * 17
         black_y = 30
 
-        window_img.put_text(f"White: {white_score}", white_x, white_y, font_size=0.8)
+        window_img.put_text(f"{white_label}: {white_score}", white_x, white_y, font_size=0.8)
         window_img.put_text(black_text, black_x, black_y, font_size=0.8)
 
     def render_move_history(

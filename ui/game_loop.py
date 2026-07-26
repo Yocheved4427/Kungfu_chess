@@ -196,6 +196,8 @@ def _run_two_player(
     asset_loader: AssetLoader,
     screen: Img,
     pending_clicks: list,
+    white_username: str = "White",
+    black_username: str = "Black",
 ) -> None:
     """Split-screen two-player loop: White plays the left half, Black
     the right — one shared ``GameEngine``/``GameState`` (it's one game),
@@ -204,6 +206,15 @@ def _run_two_player(
     ``_run_single_player``, and ``_OwnColorClickController``/
     ``_route_click``) for why a shared ``GameEngine.handle_click`` /
     ``engine.selection`` can't be used directly here.
+
+    *white_username*/*black_username* label each side's score overlay
+    with that player's own logged-in username (see main_gui.py's login
+    flow) instead of the generic "White"/"Black" — default to those
+    generic labels so this function still works standalone/untested-user
+    the way it always did. Unlike single-player/hot-seat mode (one
+    login, two panels, no second identity to label the other side
+    with — see ``_run_single_player``/``render_player_panel``), two-player
+    mode has exactly two distinct logged-in accounts, one per side.
 
     History panel is shown once, on the right half's own outer right
     edge (reusing ``show_history_panel`` unchanged); each half draws its
@@ -253,11 +264,15 @@ def _run_two_player(
 
             left_screen = Img()
             left_renderer.render(snapshot, left_screen, selected=left_controller.selection)
-            left_renderer.render_scores(left_screen, white_score, black_score)
+            left_renderer.render_scores(
+                left_screen, white_score, black_score, white_username, black_username
+            )
 
             right_screen = Img()
             right_renderer.render(snapshot, right_screen, selected=right_controller.selection)
-            right_renderer.render_scores(right_screen, white_score, black_score)
+            right_renderer.render_scores(
+                right_screen, white_score, black_score, white_username, black_username
+            )
             right_renderer.render_move_history(right_screen, history_tracker.moves)
 
             combined = _hstack(left_screen, right_screen)
