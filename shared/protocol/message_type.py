@@ -15,9 +15,12 @@ from enum import Enum
 class MessageType(Enum):
     """Wire-level kind of a shared.protocol message."""
     LOGIN = "login"
+    REGISTER = "register"
     CREATE_ROOM = "create_room"
     JOIN_ROOM = "join_room"
+    QUEUE_FOR_MATCH = "queue_for_match"
     MOVE_PIECE = "move_piece"
     GAME_STATE_UPDATE = "game_state_update"
     GAME_OVER = "game_over"
     ERROR = "error"
+    ACK = "ack"

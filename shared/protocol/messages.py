@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, fields
-from typing import ClassVar, Optional, Tuple
+from dataclasses import dataclass, field, fields
+from typing import ClassVar, Dict, Optional, Tuple
 
 from shared.models.cell import Cell
 from shared.protocol.message_type import MessageType
@@ -16,12 +16,11 @@ from shared.protocol.message_type import MessageType
 # on exactly these two methods, it doesn't know each message's fields
 # itself.
 #
-# Standalone, new addition: this is NOT the wire format
-# server/server.py and network_client.py already speak to each other
-# (see shared/protocol/protocol.py's own docstring for the full
-# comparison) — there is no "rooms" concept anywhere else in this
-# codebase yet, so CreateRoomMessage/JoinRoomMessage don't correspond
-# to anything a server currently implements.
+# This is NOT the wire format server/server.py and network_client.py
+# speak to each other (see shared/protocol/protocol.py's own docstring
+# for the full comparison) — it's server/network/server.py's, the
+# room/matchmaking-capable socket server that actually implements
+# CreateRoomMessage/JoinRoomMessage's "rooms" concept.
 # ---------------------------------------------------------------------------
 
 
@@ -65,14 +64,37 @@ class Message(ABC):
 
 @dataclass(frozen=True)
 class LoginMessage(Message):
-    """Client -> server: log in with a username."""
+    """Client -> server: log in with a username/password against the
+    server's user database (see server.services.auth_service.
+    AuthService.login — unrelated to server/server.py's own,
+    separate, password-less username-only login).
+
+    ``password`` was added after this class's original,
+    server/server.py-shaped design (username only, no accounts) — this
+    message now targets a real, database-backed account instead.
+    """
     username: str
+    password: str
 
     MESSAGE_TYPE: ClassVar[MessageType] = MessageType.LOGIN
 
     @classmethod
     def from_dict(cls, data: dict) -> "LoginMessage":
-        return cls(username=data["username"])
+        return cls(username=data["username"], password=data["password"])
+
+
+@dataclass(frozen=True)
+class RegisterMessage(Message):
+    """Client -> server: create a new account with a username/password
+    (see server.services.auth_service.AuthService.register)."""
+    username: str
+    password: str
+
+    MESSAGE_TYPE: ClassVar[MessageType] = MessageType.REGISTER
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "RegisterMessage":
+        return cls(username=data["username"], password=data["password"])
 
 
 @dataclass(frozen=True)
@@ -97,6 +119,22 @@ class JoinRoomMessage(Message):
     @classmethod
     def from_dict(cls, data: dict) -> "JoinRoomMessage":
         return cls(room_id=data["room_id"])
+
+
+@dataclass(frozen=True)
+class QueueForMatchMessage(Message):
+    """Client -> server: join the ELO-based matchmaking queue instead
+    of creating/joining a room directly (see
+    server.services.matchmaking_service.MatchmakingService). No fields
+    of its own — the server already knows the connection's username
+    and ELO rating from its login.
+    """
+
+    MESSAGE_TYPE: ClassVar[MessageType] = MessageType.QUEUE_FOR_MATCH
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "QueueForMatchMessage":
+        return cls()
 
 
 @dataclass(frozen=True)
@@ -167,3 +205,26 @@ class ErrorMessage(Message):
     @classmethod
     def from_dict(cls, data: dict) -> "ErrorMessage":
         return cls(message=data["message"])
+
+
+@dataclass(frozen=True)
+class AckMessage(Message):
+    """Server -> client: a generic success acknowledgment for a
+    request that has no dedicated response message of its own (login,
+    register, create_room, join_room) — one message type covers all
+    four rather than a dedicated class each. ``request_type`` names
+    which request this acks (e.g. ``"login"``, ``"create_room"``);
+    ``detail`` carries whatever small amount of request-specific data
+    the client needs next (e.g. ``{"color": "white"}`` for a login ack,
+    ``{"room_id": "a1b2c3d4"}`` for a create_room ack) — a plain
+    ``{str: str}`` mapping so this stays one message type instead of
+    several.
+    """
+    request_type: str
+    detail: Dict[str, str] = field(default_factory=dict)
+
+    MESSAGE_TYPE: ClassVar[MessageType] = MessageType.ACK
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "AckMessage":
+        return cls(request_type=data["request_type"], detail=data.get("detail", {}))
