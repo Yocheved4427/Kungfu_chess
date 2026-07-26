@@ -6,6 +6,7 @@ from typing import Dict, Type
 
 from shared.protocol.message_type import MessageType
 from shared.protocol.messages import (
+    AckMessage,
     CreateRoomMessage,
     ErrorMessage,
     GameOverMessage,
@@ -14,6 +15,8 @@ from shared.protocol.messages import (
     LoginMessage,
     Message,
     MovePieceMessage,
+    QueueForMatchMessage,
+    RegisterMessage,
 )
 
 # ---------------------------------------------------------------------------
@@ -24,28 +27,31 @@ from shared.protocol.messages import (
 # followed by the payload itself. Framing is needed here because a raw
 # socket is just a byte stream with no message boundaries of its own.
 #
-# Standalone, new module — NOT currently wired into server/server.py
-# or network_client.py. Those already have a working, different
-# multiplayer pipeline: they run over the `websockets` library (which
-# frames one message per call on its own, so none of this is needed
-# there) and speak their own ad hoc JSON shapes (`{"type": "login",
-# "username": ...}`, `{"type": "move", "from": "e2", "to": "e4"}`,
-# `{"type": "snapshot", "board": [...], ...}` — see server/server.py's
-# module docstring) with no "rooms" concept at all yet. This module's
-# MessageType/Message classes are a separate protocol design for plain
-# sockets, not a drop-in replacement for that pipeline.
+# Used by server/network/server.py (the room/matchmaking-capable
+# socket server) — NOT by server/server.py or network_client.py, which
+# predate rooms entirely and run their own, different multiplayer
+# pipeline over the `websockets` library (which frames one message per
+# call on its own, so none of this is needed there), speaking their
+# own ad hoc JSON shapes (`{"type": "login", "username": ...}`,
+# `{"type": "move", "from": "e2", "to": "e4"}`, `{"type": "snapshot",
+# "board": [...], ...}` — see server/server.py's own module docstring).
+# Both pipelines coexist deliberately (see server/network/server.py's
+# own module docstring for why) rather than one replacing the other.
 # ---------------------------------------------------------------------------
 
 _HEADER_LENGTH = 4  # bytes; big-endian unsigned length of the JSON payload
 
 _MESSAGE_CLASSES: Dict[MessageType, Type[Message]] = {
     MessageType.LOGIN: LoginMessage,
+    MessageType.REGISTER: RegisterMessage,
     MessageType.CREATE_ROOM: CreateRoomMessage,
     MessageType.JOIN_ROOM: JoinRoomMessage,
+    MessageType.QUEUE_FOR_MATCH: QueueForMatchMessage,
     MessageType.MOVE_PIECE: MovePieceMessage,
     MessageType.GAME_STATE_UPDATE: GameStateUpdateMessage,
     MessageType.GAME_OVER: GameOverMessage,
     MessageType.ERROR: ErrorMessage,
+    MessageType.ACK: AckMessage,
 }
 
 
