@@ -437,7 +437,12 @@ def _run_network_player(
             error_expires_at = time.time() + 4.0
         network_client.pop_events()  # not yet consumed by anything in this mode
 
-        if snapshot_dict is not None:
+        # "board" is checked explicitly (rather than indexed directly)
+        # so a malformed/incomplete snapshot -- e.g. a future protocol
+        # version, or a non-conforming server -- degrades to the
+        # "waiting for the game to start" branch below instead of
+        # raising KeyError and crashing this render loop.
+        if snapshot_dict is not None and "board" in snapshot_dict:
             board = TextBoard(snapshot_dict["board"])
 
             for x, y in pending_clicks:
@@ -447,8 +452,8 @@ def _run_network_player(
             winner_raw = snapshot_dict.get("winner")
             game_snapshot = GameSnapshot(
                 board=BoardSnapshot.from_board(board),
-                current_time=snapshot_dict["current_time"],
-                game_over=snapshot_dict["game_over"],
+                current_time=snapshot_dict.get("current_time", 0),
+                game_over=snapshot_dict.get("game_over", False),
                 winner=Color(winner_raw) if winner_raw is not None else None,
                 pending=(),
                 airborne=(),

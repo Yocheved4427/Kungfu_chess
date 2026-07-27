@@ -148,6 +148,9 @@ class NetworkClient:
             try:
                 self._sock.close()
             except OSError:
+                # Already closed (e.g. the receive/send loop's own
+                # OSError already tore it down) -- nothing left to clean
+                # up, and nothing new to report.
                 pass
         for thread in (self._receive_thread, self._send_thread):
             if thread is not None:
@@ -188,8 +191,18 @@ class NetworkClient:
                 message = Protocol.receive(self._sock)
                 with self._lock:
                     self._pending_messages.append(message)
-        except (ProtocolError, OSError):
+        except OSError:
+            # The connection was closed or reset -- an ordinary
+            # disconnect (server went away, network drop, or our own
+            # close() tearing the socket down). Nothing more to do here
+            # than mark ourselves disconnected, below.
             pass
+        except ProtocolError as e:
+            # Unlike a plain disconnect, this means the server sent
+            # bytes that don't decode as a valid framed message -- a
+            # server bug or a version mismatch. Worth logging even
+            # though we still just disconnect the same way.
+            logger.warning("Malformed message from server: %s", e)
         finally:
             with self._lock:
                 self._connected = False
