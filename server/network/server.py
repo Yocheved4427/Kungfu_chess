@@ -4,7 +4,7 @@ import logging
 import socket
 import threading
 import time
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional, Type
 
 from shared.constants import DEFAULT_HOST
 from shared.models.color import Color
@@ -174,6 +174,24 @@ class NetworkServer:
         self._accept_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
+        # Dispatch tables for _route(): message class -> handler. Split
+        # in two because Login/Register are the only messages allowed
+        # before a connection has logged in -- everything else needs
+        # the login-gate check in between (see _route). Built once,
+        # here, as bound methods, rather than a growing isinstance/elif
+        # chain in _route itself -- adding a new message type only ever
+        # means adding one entry to one of these dicts.
+        self._login_exempt_handlers: Dict[Type[Message], Callable[[ClientConnection, Message], None]] = {
+            LoginMessage: self._handle_login,
+            RegisterMessage: self._handle_register,
+        }
+        self._authenticated_handlers: Dict[Type[Message], Callable[[ClientConnection, Message], None]] = {
+            CreateRoomMessage: self._handle_create_room,
+            JoinRoomMessage: self._handle_join_room,
+            QueueForMatchMessage: self._handle_queue_for_match,
+            MovePieceMessage: self._handle_move_piece,
+        }
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -198,6 +216,10 @@ class NetworkServer:
             try:
                 self._server_socket.close()
             except OSError:
+                # Already closed (e.g. stop() called twice, or the socket
+                # was never successfully bound) -- closing twice is not an
+                # error condition worth surfacing, there's nothing left to
+                # clean up either way.
                 pass
         with self._lock:
             for room_game in self._games.values():
@@ -223,8 +245,19 @@ class NetworkServer:
             while True:
                 message = Protocol.receive(connection.sock)
                 self._route(connection, message)
-        except (ProtocolError, OSError):
+        except OSError:
+            # The connection was closed or reset -- an ordinary
+            # disconnect (client quit, network drop, or our own
+            # socket being closed by stop()/_on_disconnect elsewhere).
+            # Nothing to log beyond what _on_disconnect already logs.
             pass
+        except ProtocolError as e:
+            # Unlike a plain disconnect, this means the peer sent bytes
+            # that don't decode as a valid framed message -- a client
+            # bug, a version mismatch, or a non-protocol connection
+            # (e.g. a port scanner). Worth knowing about even though we
+            # still just drop the connection the same way.
+            logger.warning("Malformed message from %s: %s", connection.address, e)
         finally:
             self._on_disconnect(connection)
 
@@ -233,30 +266,23 @@ class NetworkServer:
     # ------------------------------------------------------------------
 
     def _route(self, connection: ClientConnection, message: Message) -> None:
-        if isinstance(message, LoginMessage):
-            self._handle_login(connection, message)
-            return
-        if isinstance(message, RegisterMessage):
-            self._handle_register(connection, message)
+        login_exempt_handler = self._login_exempt_handlers.get(type(message))
+        if login_exempt_handler is not None:
+            login_exempt_handler(connection, message)
             return
 
         if connection.username is None:
             self._send(connection, ErrorMessage(message="You must log in before sending other commands"))
             return
 
-        if isinstance(message, CreateRoomMessage):
-            self._handle_create_room(connection, message)
-        elif isinstance(message, JoinRoomMessage):
-            self._handle_join_room(connection, message)
-        elif isinstance(message, QueueForMatchMessage):
-            self._handle_queue_for_match(connection, message)
-        elif isinstance(message, MovePieceMessage):
-            self._handle_move_piece(connection, message)
-        else:
+        handler = self._authenticated_handlers.get(type(message))
+        if handler is None:
             self._send(
                 connection,
                 ErrorMessage(message=f"Unexpected message type from client: {type(message).__name__}"),
             )
+            return
+        handler(connection, message)
 
     # ------------------------------------------------------------------
     # Auth handlers
@@ -462,4 +488,7 @@ class NetworkServer:
         try:
             connection.sock.close()
         except OSError:
+            # Already closed (the read loop's own OSError already means
+            # the socket is in a bad/closed state) -- nothing further to
+            # clean up, and nothing new to report.
             pass

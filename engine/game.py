@@ -13,6 +13,8 @@ from engine.cooldown import is_resting, start_cooldown
 from engine.game_over import GameOverRule, KingCaptureRule
 from engine.game_state import GameState
 from engine.promotion import is_promotion, promoted_piece
+from engine.route_lock import has_route_conflict
+from engine.route_lock import lane as _route_lane
 from engine.rule_engine import MoveResult, RuleEngine
 from engine.rules import MoveValidator
 from input.board_mapper import BoardMapper
@@ -752,45 +754,20 @@ class GameEngine:
 
     @staticmethod
     def _lane(from_pos: Cell, to_pos: Cell) -> tuple[str, int, int] | None:
-        """Return the (axis, lo, hi) lane a straight move travels through.
-
-        A horizontal move occupies every column between ``from_pos`` and
-        ``to_pos`` on its row; a vertical move occupies every row on its
-        column. Diagonal / knight moves don't travel a single-axis lane and
-        return ``None`` — they never participate in route locking.
+        """Return the (axis, lo, hi) lane a straight move travels through
+        — see ``engine.route_lock.lane``, which this delegates to
+        (extracted there so GameEngine doesn't hold the lane/overlap
+        arithmetic inline; kept here too, as a thin staticmethod, since
+        it's part of this class's existing public-enough surface —
+        tests call ``GameEngine._lane`` directly).
         """
-        if from_pos.row == to_pos.row and from_pos.col != to_pos.col:
-            lo, hi = sorted((from_pos.col, to_pos.col))
-            return ("col", lo, hi)
-        if from_pos.col == to_pos.col and from_pos.row != to_pos.row:
-            lo, hi = sorted((from_pos.row, to_pos.row))
-            return ("row", lo, hi)
-        return None
+        return _route_lane(from_pos, to_pos)
 
     def _route_conflicts(
         self, state: GameState, piece: str, from_pos: Cell, to_pos: Cell
     ) -> bool:
         """Return True if this move's lane overlaps an opposite-colour piece
-        already in transit along the same lane in *state*.
-
-        Pieces of opposite colour may not travel a common route (the same
-        span of columns on a horizontal move, or rows on a vertical move)
-        at the same time — the second mover is rejected. Same-colour moves
-        and non-lane moves (diagonal / knight) never conflict.
+        already in transit along the same lane in *state* — see
+        ``engine.route_lock.has_route_conflict``, which this delegates to.
         """
-        lane = self._lane(from_pos, to_pos)
-        if lane is None:
-            return False
-        axis, lo, hi = lane
-        for pm in state.pending:
-            if same_color(pm.piece, piece):
-                continue
-            other_lane = self._lane(pm.from_pos, pm.to_pos)
-            if other_lane is None:
-                continue
-            other_axis, other_lo, other_hi = other_lane
-            if other_axis != axis:
-                continue
-            if lo <= other_hi and other_lo <= hi:
-                return True
-        return False
+        return has_route_conflict(state.pending, piece, from_pos, to_pos)

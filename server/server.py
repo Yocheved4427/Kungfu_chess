@@ -103,7 +103,7 @@ class _BroadcastObserver(Observer):
     only ever fires from inside ``GameEngine.tick``/``attempt_move``,
     both called from this module's own async handlers). A separate
     coroutine (``GameServer._broadcast_loop``) drains the queue and does
-    the actual ``await websocket.send(...)`` calls.
+    the actual ``await player_connection.send(...)`` calls.
     """
 
     def __init__(self, queue: "asyncio.Queue[dict]") -> None:
@@ -161,40 +161,44 @@ class GameServer:
     # Colour-slot bookkeeping
     # ------------------------------------------------------------------
 
-    def _assign_color(self, websocket: ServerConnection) -> Optional[Color]:
-        """Claim a free colour slot for *websocket*, or None if both are taken."""
+    def _assign_color(self, player_connection: ServerConnection) -> Optional[Color]:
+        """Claim a free colour slot for *player_connection*, or None if both are taken."""
         if self._white is None:
-            self._white = websocket
+            self._white = player_connection
             return Color.WHITE
         if self._black is None:
-            self._black = websocket
+            self._black = player_connection
             return Color.BLACK
         return None
 
-    def _release_color(self, websocket: ServerConnection) -> None:
-        """Free whichever slot *websocket* held, if any."""
-        if self._white is websocket:
+    def _release_color(self, player_connection: ServerConnection) -> None:
+        """Free whichever slot *player_connection* held, if any."""
+        if self._white is player_connection:
             self._white = None
-        elif self._black is websocket:
+        elif self._black is player_connection:
             self._black = None
 
-    def _color_for(self, websocket: ServerConnection) -> Optional[Color]:
-        """The colour *websocket* is logged in as, or None if it hasn't
+    def _color_for(self, player_connection: ServerConnection) -> Optional[Color]:
+        """The colour *player_connection* is logged in as, or None if it hasn't
         logged in (yet, or ever)."""
-        if self._white is websocket:
+        if self._white is player_connection:
             return Color.WHITE
-        if self._black is websocket:
+        if self._black is player_connection:
             return Color.BLACK
         return None
 
     def _connections(self) -> List[ServerConnection]:
-        return [ws for ws in (self._white, self._black) if ws is not None]
+        return [
+            player_connection
+            for player_connection in (self._white, self._black)
+            if player_connection is not None
+        ]
 
     # ------------------------------------------------------------------
     # Connection lifecycle
     # ------------------------------------------------------------------
 
-    async def handler(self, websocket: ServerConnection) -> None:
+    async def handler(self, player_connection: ServerConnection) -> None:
         """Per-connection entry point registered with ``websockets.serve``.
 
         Connecting alone does nothing but open the socket — every
@@ -203,14 +207,14 @@ class GameServer:
         """
         logger.info("Connection opened")
         try:
-            async for raw in websocket:
-                await self._handle_message(websocket, raw)
+            async for raw in player_connection:
+                await self._handle_message(player_connection, raw)
         except ConnectionClosed:
             pass
         finally:
-            color = self._color_for(websocket)
-            self._release_color(websocket)
-            self._usernames.pop(websocket, None)
+            color = self._color_for(player_connection)
+            self._release_color(player_connection)
+            self._usernames.pop(player_connection, None)
             if color is not None:
                 logger.info("Player disconnected (%s)", color.value)
             else:
@@ -220,66 +224,66 @@ class GameServer:
     # Incoming messages
     # ------------------------------------------------------------------
 
-    async def _handle_message(self, websocket: ServerConnection, raw: str) -> None:
+    async def _handle_message(self, player_connection: ServerConnection, raw: str) -> None:
         """Parse and dispatch one incoming client message.
 
         Never raises — any malformed/illegal command is reported back
-        to *websocket* alone via an ``error`` message, per the wire
+        to *player_connection* alone via an ``error`` message, per the wire
         protocol (see this module's own header); the connection and the
         rest of the server are unaffected either way.
         """
         try:
             message = json.loads(raw)
         except json.JSONDecodeError:
-            await self._send_error(websocket, "Malformed JSON")
+            await self._send_error(player_connection, "Malformed JSON")
             return
 
         if not isinstance(message, dict):
-            await self._send_error(websocket, "Message must be a JSON object")
+            await self._send_error(player_connection, "Message must be a JSON object")
             return
 
         message_type = message.get("type")
         if message_type == "login":
-            await self._handle_login(websocket, message)
+            await self._handle_login(player_connection, message)
             return
 
-        color = self._color_for(websocket)
+        color = self._color_for(player_connection)
         if color is None:
-            await self._send_error(websocket, "You must log in before sending other commands")
+            await self._send_error(player_connection, "You must log in before sending other commands")
             return
 
         if message_type == "move":
-            await self._handle_move(websocket, color, message)
+            await self._handle_move(player_connection, color, message)
         else:
-            await self._send_error(websocket, f"Unknown message type: {message_type!r}")
+            await self._send_error(player_connection, f"Unknown message type: {message_type!r}")
 
-    async def _handle_login(self, websocket: ServerConnection, message: dict) -> None:
-        if self._color_for(websocket) is not None:
-            await self._send_error(websocket, "Already logged in")
+    async def _handle_login(self, player_connection: ServerConnection, message: dict) -> None:
+        if self._color_for(player_connection) is not None:
+            await self._send_error(player_connection, "Already logged in")
             return
 
         username = message.get("username")
         if not isinstance(username, str) or not username.strip():
-            await self._send_error(websocket, "Username must be a non-empty string")
+            await self._send_error(player_connection, "Username must be a non-empty string")
             return
         if len(username) > MAX_USERNAME_LENGTH:
             await self._send_error(
-                websocket, f"Username must be at most {MAX_USERNAME_LENGTH} characters"
+                player_connection, f"Username must be at most {MAX_USERNAME_LENGTH} characters"
             )
             return
 
-        color = self._assign_color(websocket)
+        color = self._assign_color(player_connection)
         if color is None:
-            await self._send(websocket, {
+            await self._send(player_connection, {
                 "type": "login_rejected",
                 "reason": "Server already has two players logged in.",
             })
-            await websocket.close()
+            await player_connection.close()
             return
 
-        self._usernames[websocket] = username
+        self._usernames[player_connection] = username
         logger.info("Login: %r as %s", username, color.value)
-        await self._send(websocket, {
+        await self._send(player_connection, {
             "type": "login_ok",
             "color": "white" if color is Color.WHITE else "black",
         })
@@ -302,10 +306,10 @@ class GameServer:
         logger.info("Both players logged in -- game started")
         self.game_ready.set()
 
-    async def _handle_move(self, websocket: ServerConnection, color: Color, message: dict) -> None:
+    async def _handle_move(self, player_connection: ServerConnection, color: Color, message: dict) -> None:
         if self.engine is None or self.state is None:
             await self._send_error(
-                websocket, "The game hasn't started yet -- waiting for the second player to log in"
+                player_connection, "The game hasn't started yet -- waiting for the second player to log in"
             )
             return
 
@@ -315,7 +319,7 @@ class GameServer:
             from_pos = algebraic_to_cell(from_square)
             to_pos = algebraic_to_cell(to_square)
         except AlgebraicNotationError as e:
-            await self._send_error(websocket, str(e))
+            await self._send_error(player_connection, str(e))
             return
 
         # Real-time gameplay has no turn order (either side may move
@@ -327,30 +331,30 @@ class GameServer:
         # applies for the two-player GUI's split-screen input.
         piece = self.state.board.get_piece_at(from_pos)
         if piece is None or piece == "." or piece[0] != color.value:
-            await self._send_error(websocket, f"You do not control the piece at {from_square!r}")
+            await self._send_error(player_connection, f"You do not control the piece at {from_square!r}")
             return
 
         if not self.engine.attempt_move(self.state, from_pos, to_pos):
-            await self._send_error(websocket, f"Illegal move: {from_square} to {to_square}")
+            await self._send_error(player_connection, f"Illegal move: {from_square} to {to_square}")
 
     # ------------------------------------------------------------------
     # Outgoing messages
     # ------------------------------------------------------------------
 
-    async def _send(self, websocket: ServerConnection, payload: dict) -> None:
+    async def _send(self, player_connection: ServerConnection, payload: dict) -> None:
         try:
-            await websocket.send(json.dumps(payload))
+            await player_connection.send(json.dumps(payload))
         except ConnectionClosed:
             pass  # the client is gone; nothing further to do
 
-    async def _send_error(self, websocket: ServerConnection, message: str) -> None:
-        await self._send(websocket, {"type": "error", "message": message})
+    async def _send_error(self, player_connection: ServerConnection, message: str) -> None:
+        await self._send(player_connection, {"type": "error", "message": message})
 
     async def _broadcast(self, payload: dict) -> None:
         data = json.dumps(payload)
-        for websocket in self._connections():
+        for player_connection in self._connections():
             try:
-                await websocket.send(data)
+                await player_connection.send(data)
             except ConnectionClosed:
                 pass  # that client is gone; the other still gets it
 

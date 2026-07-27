@@ -199,11 +199,11 @@ class NetworkClient:
         self._outbound = asyncio.Queue()
 
         url = f"ws://{self._host}:{self._port}"
-        async with ws_connect(url) as websocket:
-            await websocket.send(json.dumps({"type": "login", "username": self._username}))
+        async with ws_connect(url) as server_connection:
+            await server_connection.send(json.dumps({"type": "login", "username": self._username}))
 
-            receive_task = asyncio.create_task(self._receive_loop(websocket))
-            send_task = asyncio.create_task(self._send_loop(websocket))
+            receive_task = asyncio.create_task(self._receive_loop(server_connection))
+            send_task = asyncio.create_task(self._send_loop(server_connection))
             stop_task = asyncio.create_task(self._stop_event.wait())
 
             await asyncio.wait(
@@ -212,9 +212,9 @@ class NetworkClient:
             for task in (receive_task, send_task, stop_task):
                 task.cancel()
 
-    async def _receive_loop(self, websocket) -> None:
+    async def _receive_loop(self, server_connection) -> None:
         try:
-            async for raw in websocket:
+            async for raw in server_connection:
                 self._handle_incoming(raw)
         except ConnectionClosed:
             pass
@@ -224,11 +224,11 @@ class NetworkClient:
         if self._login_result.empty():
             self._login_result.put(None)
 
-    async def _send_loop(self, websocket) -> None:
+    async def _send_loop(self, server_connection) -> None:
         while True:
             message = await self._outbound.get()
             try:
-                await websocket.send(json.dumps(message))
+                await server_connection.send(json.dumps(message))
             except ConnectionClosed:
                 return
 
