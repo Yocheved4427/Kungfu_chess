@@ -36,6 +36,17 @@ class PieceView:
     def get_current_frame(self) -> "Img":
         return self._machine.get_current_frame()
 
+    def transition_to(self, state_name: str) -> None:
+        """Force this piece directly into *state_name* — for a caller
+        that has no full ``PieceSnapshot`` to diff against ``sync()``
+        (e.g. ``client.ui.animation.animation_manager.AnimationManager``,
+        whose wire protocol carries only a flat board array, no
+        per-piece pending/airborne detail). Does not touch
+        ``self.snapshot`` — a later ``sync()`` call still diffs
+        normally against whatever snapshot this view last saw, if any.
+        """
+        self._machine.transition_to(state_name)
+
     def sync(self, snapshot: "PieceSnapshot") -> None:
         """Advance this piece's animation state for a new frame.
 
