@@ -53,6 +53,15 @@ class OnlineCoordinator:
         self._winner: Optional[str] = None
         self._pending_errors: List[str] = []
 
+    @property
+    def screens(self) -> ScreenManager:
+        """The ``ScreenManager`` this coordinator drives — exposed so a
+        screen's own run loop can both read ``current`` (to know when
+        to return control to its caller) and call ``transition_to``
+        directly for a purely local, non-network-driven transition
+        (e.g. a "Log Out"/"Back" button — see ``log_out()`` below)."""
+        return self._screens
+
     # ------------------------------------------------------------------
     # Driven once per UI frame
     # ------------------------------------------------------------------
