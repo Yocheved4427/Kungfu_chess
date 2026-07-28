@@ -1,0 +1,258 @@
+name: kungfu-chess
+
+# ---------------------------------------------------------------------------
+# Kung Fu Chess -- local multi-service development environment
+# ---------------------------------------------------------------------------
+# Mirrors Server_Design.md's service split at small scale: one container
+# per service instead of one-of-hundreds, a single-node Postgres/Redis/
+# Kafka instead of a sharded cluster, and two Game Server replicas
+# (rather than ~1,000) to prove out `services/allocator/`'s
+# least-loaded placement locally.
+#
+# All credentials, ports, and topic/group names below are ${VAR}
+# references, resolved from `.env` in this same directory -- `docker
+# compose` loads that file automatically, no --env-file flag needed.
+# See `.env`'s own header comment for the full variable list and a
+# couple of variables (e.g. REDIS_PORT) that genuinely reconfigure the
+# container's own listen port, not just its host-side mapping.
+#
+# Bring it all up:
+#   docker compose up --build
+#
+# See the "Instructions" section of the accompanying chat response for
+# the full local walkthrough (register -> login -> queue -> connect to
+# the assigned Game Server -> move -> game_ended -> Postgres).
+# ---------------------------------------------------------------------------
+
+services:
+  # -------------------------------------------------------------------
+  # Infrastructure
+  # -------------------------------------------------------------------
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: kfc-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Officially supported by the postgres image -- makes the server
+      # actually listen on ${POSTGRES_PORT} inside the container, not
+      # just remap the host side.
+      PGPORT: ${POSTGRES_PORT}
+    ports:
+      - "${POSTGRES_PORT}:${POSTGRES_PORT}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Runs once, automatically, the first time this volume is created.
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -p ${POSTGRES_PORT}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [kungfu-net]
+
+  redis:
+    image: redis:7-alpine
+    container_name: kfc-redis
+    # Makes redis-server actually listen on ${REDIS_PORT} inside the
+    # container -- every app service's REDIS_PORT env var (below) reads
+    # this exact same value, so the two can never drift apart.
+    command: ["redis-server", "--port", "${REDIS_PORT}"]
+    ports:
+      # Host-side port intentionally different from REDIS_PORT (see
+      # .env) -- avoids clashing with any other Redis already running
+      # on your machine. Internal service-to-service traffic always
+      # uses REDIS_PORT and is unaffected by this mapping.
+      - "${REDIS_HOST_PORT}:${REDIS_PORT}"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "${REDIS_PORT}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks: [kungfu-net]
+
+  # Single-node Kafka in KRaft mode (no ZooKeeper), using the official
+  # Apache Kafka image -- the local-dev equivalent of Server_Design.md
+  # decision 3/11's replicated, 128-partition "game_ended" topic.
+  # auto-create is left on so the topic appears on first publish; a
+  # production deploy would create it explicitly with its full
+  # partition count instead.
+  #
+  # NOTE: bitnami/kafka images are no longer pullable from Docker Hub
+  # (deprecated) -- this uses the official Apache Kafka image instead,
+  # which supports KRaft mode the same way.
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: kfc-kafka
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:${KAFKA_PORT},CONTROLLER://:${KAFKA_CONTROLLER_PORT}
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:${KAFKA_PORT}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:${KAFKA_CONTROLLER_PORT}
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      # Host-side port intentionally different from KAFKA_PORT (see
+      # .env) -- avoids clashing with any other Kafka broker already
+      # running on your machine. Internal service-to-service traffic
+      # always uses KAFKA_PORT and is unaffected by this mapping.
+      - "${KAFKA_HOST_PORT}:${KAFKA_PORT}"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:${KAFKA_PORT} --list"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+    networks: [kungfu-net]
+
+  # -------------------------------------------------------------------
+  # Application services (Server_Design.md, Part B)
+  # -------------------------------------------------------------------
+
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    container_name: kfc-gateway
+    environment:
+      POSTGRES_URI: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT}/${POSTGRES_DB}
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT}
+      MATCHMAKING_URL: http://matchmaking:${MATCHMAKING_PORT}
+      SESSION_TTL_S: ${SESSION_TTL_S}
+      # Read by both the Dockerfile's CMD (which port uvicorn binds)
+      # and its HEALTHCHECK (which port to probe) -- see
+      # services/gateway/Dockerfile.
+      GATEWAY_PORT: ${GATEWAY_PORT}
+    ports:
+      - "${GATEWAY_PORT}:${GATEWAY_PORT}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      matchmaking:
+        condition: service_started
+    networks: [kungfu-net]
+
+  matchmaking:
+    build:
+      context: .
+      dockerfile: services/matchmaking/Dockerfile
+    container_name: kfc-matchmaking
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT}
+      ALLOCATOR_URL: http://allocator:${ALLOCATOR_PORT}
+      MATCHMAKING_PORT: ${MATCHMAKING_PORT}
+    ports:
+      - "${MATCHMAKING_PORT}:${MATCHMAKING_PORT}"
+    depends_on:
+      redis:
+        condition: service_healthy
+      allocator:
+        condition: service_started
+    networks: [kungfu-net]
+
+  allocator:
+    build:
+      context: .
+      dockerfile: services/allocator/Dockerfile
+    container_name: kfc-allocator
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT}
+      MAX_ROOMS_PER_CONTAINER: ${MAX_ROOMS_PER_CONTAINER}
+      ALLOCATOR_PORT: ${ALLOCATOR_PORT}
+    ports:
+      - "${ALLOCATOR_PORT}:${ALLOCATOR_PORT}"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [kungfu-net]
+
+  # Two Game Server replicas from the SAME image, distinguished only by
+  # env vars -- demonstrates services/allocator/'s least-loaded
+  # placement across more than one instance, the way the real fleet
+  # would scale to ~1,000 (decision 7).
+  game_server_1:
+    build:
+      context: .
+      dockerfile: services/game_server/Dockerfile
+    container_name: kfc-game-server-1
+    environment:
+      GAME_SERVER_ID: game_server_1
+      GAME_SERVER_HOST: game_server_1
+      GAME_SERVER_PORT: ${GAME_SERVER_1_PORT}
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:${KAFKA_PORT}
+      GAME_ENDED_TOPIC: ${GAME_ENDED_TOPIC}
+    ports:
+      - "${GAME_SERVER_1_PORT}:${GAME_SERVER_1_PORT}"
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks: [kungfu-net]
+
+  game_server_2:
+    build:
+      context: .
+      dockerfile: services/game_server/Dockerfile
+    container_name: kfc-game-server-2
+    environment:
+      GAME_SERVER_ID: game_server_2
+      GAME_SERVER_HOST: game_server_2
+      GAME_SERVER_PORT: ${GAME_SERVER_2_PORT}
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:${KAFKA_PORT}
+      GAME_ENDED_TOPIC: ${GAME_ENDED_TOPIC}
+    ports:
+      - "${GAME_SERVER_2_PORT}:${GAME_SERVER_2_PORT}"
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks: [kungfu-net]
+
+  event_consumer:
+    build:
+      context: .
+      dockerfile: services/event_consumer/Dockerfile
+    container_name: kfc-event-consumer
+    environment:
+      POSTGRES_URI: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT}/${POSTGRES_DB}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:${KAFKA_PORT}
+      GAME_ENDED_TOPIC: ${GAME_ENDED_TOPIC}
+      KAFKA_CONSUMER_GROUP: ${KAFKA_CONSUMER_GROUP}
+      EVENT_CONSUMER_PORT: ${EVENT_CONSUMER_PORT}
+    ports:
+      - "${EVENT_CONSUMER_PORT}:${EVENT_CONSUMER_PORT}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks: [kungfu-net]
+
+networks:
+  kungfu-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  kafka_data:

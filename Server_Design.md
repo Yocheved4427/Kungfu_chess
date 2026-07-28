@@ -233,49 +233,15 @@ This is the same idea decision 7's "≤90s of state loss is cheap to lose" argum
 established for crashes — draining just gets to be zero loss instead of bounded loss,
 because a voluntary disruption can afford to wait 90s and a crash can't.
 
-### 10. Game Allocator: split out from Matchmaking, with atomic Redis ops for room assignment
+### 10. Room Registry consistency: atomic Redis ops, not read-then-write
 
-Room placement (picking a Game Server for a new room, atomically reserving capacity on
-it) started out embedded inside Matchmaking, since it's triggered by the same event — a
-pair being found. But it's a different *kind* of problem: Matchmaking is queue-matching
-(does a waiting player's ELO window overlap another's), while placement is bin-packing
-(which of ~400 regional containers has room for one more, and reserving that slot without
-a race). Splitting them lets each scale and fail on its own terms.
+With Matchmaking now a horizontally-scaled tier (~30–40 instances per region), two
+instances can race on the same shared state. Concretely: two instances both read
+"Game Server G has 4,999/5,000 rooms" and both decide to assign a new room to it,
+overshooting capacity — a classic check-then-act race, not solvable by adding more
+replicas of the same racy logic.
 
-**The two don't split apart because of raw request volume — the numbers say they're the
-same.** Every match Matchmaking finds needs exactly one placement, and at steady state
-match-starts and match-ends both track the same game-completion rate already established
-in decision 1:
-```
-5,000,000 concurrent games ÷ 60s ≈ 83,333 matches found/second ≈ 83,333 placement requests/second
-```
-So Matchmaking and the new Allocator service see essentially the same ~83,000/s request
-rate — this split is not "one of them is the bottleneck." It's justified by two things
-that *do* differ:
-
-- **Per-request cost, and how it grows.** `MatchmakingService.find_match()` scans the
-  queue pairwise (`for a in queue: for b in queue[i+1:]`) — O(n²) in queue depth. A demand
-  spike or a thin ELO bracket can make Matchmaking's per-request cost grow with queue size
-  even at a fixed request rate. Allocator's work per request is two O(1) Redis commands
-  (below) regardless of how many rooms or players exist — a flat cost that scales purely
-  with request *rate*, never with queue depth. Coupled into one service, a queue-depth
-  spike in matching would slow down room placement too, for no reason related to placement
-  itself.
-- **Data flow and failure mode.** Matchmaking's only input is the queue (Redis sorted
-  set) and its only output is a pair. Allocator needs a second, independent input
-  Matchmaking never touches: every Game Server's current room count and drain status
-  (decision 9's `gameserver:{id}:status`) — incremented on assignment, but *decremented by
-  the Game Server itself when a room ends*, a signal that has nothing to do with matching.
-  The failure modes differ accordingly: Matchmaking going down means players wait longer
-  to be paired (queue is safe in Redis, existing failure-handling row below). Allocator
-  going down means already-matched pairs stall waiting for a placement — a different
-  symptom, at a different point in the pipeline, that an operator needs to be able to tell
-  apart from "matching is slow."
-
-**Chosen: `services/allocator/` is an independent, horizontally-scaled, stateless compute
-tier** (same shape as Matchmaking — no state of its own, everything lives in Redis) that
-Matchmaking calls once it finds a pair, using the same atomic Redis primitives as before,
-now owned by Allocator instead of Matchmaking:
+**Chosen: replace read-then-write capacity checks with Redis's own atomic primitives.**
 
 - **Capacity**: `INCR gameserver:{id}:room_count` (atomic in Redis) *first*; only after
   incrementing, check whether the result exceeds `MAX_ROOMS_PER_CONTAINER` (5,000) — if
@@ -284,7 +250,7 @@ now owned by Allocator instead of Matchmaking:
   `DECR`, never leaving the system stuck over capacity, because the check-and-correct is
   unconditional and doesn't depend on winning a race.
 - **Assignment**: `SET room:{room_id}:game_server {id} NX` (set-if-not-exists, atomic) —
-  the first Allocator instance to successfully set it wins the assignment; a second
+  the first Matchmaking instance to successfully set it wins the assignment; a second
   instance racing on the same `room_id` (e.g. a retried request after a dropped response)
   gets told the key already exists and reads the existing assignment back instead of
   creating a conflicting second room for the same two players.
@@ -293,12 +259,6 @@ Both are preferred over a general-purpose distributed lock (e.g. Redlock) around
 whole "pick least-loaded server" step: the actual critical section is one counter and one
 key, small enough that Redis's own atomic commands are sufficient, without a lock's
 failure modes (held too long, expiring mid-operation) to reason about.
-
-**Tradeoff accepted:** one extra network hop (Matchmaking → Allocator) on the match-found
-path, and one more service to deploy/monitor/staff an on-call rotation for — in exchange
-for Matchmaking's O(n²) queue-scan cost never being able to slow down room placement (or
-vice versa), and for an operator being able to tell "matching is slow" apart from
-"placement is stalled" from which service's dashboards are red.
 
 ### 11. Kafka partitioning: by `game_id`, not by `user_id` — because ELO updates are commutative increments
 
@@ -370,7 +330,6 @@ deployed independently in each of the 3 regions (Americas/Europe/Asia-Pacific), 
 | 1 | Edge / Load Balancer | Managed L4/L7 LB, GeoDNS/anycast | No | ~10–20, globally distributed | Total connection rate |
 | 2 | Gateway / Auth | WebSocket, talks to DB cluster | No (signed session token) | ~200 | Login/connect rate |
 | 3 | Matchmaking & Room Registry | Container(s) + Redis Cluster | Compute: no. Registry/queue: yes, in Redis | ~100 compute + Redis cluster (dozens of shards, replicated) | Room create/join rate (~83k/s) |
-| 3b | Game Allocator | Container(s), reads/writes the same Redis Cluster | No — all state (room counts, assignments) lives in Redis | ~50 compute (decision 10: cheaper O(1) per-request cost than Matchmaking's O(n²) queue scan, so fewer instances cover the same ~83k/s) | Placement request rate (~83k/s) |
 | 4 | Game Server | Python, one process/container, owns `RealTimeArbiter` per room | **Yes**, per room, for ~30–90s | **~1,000** (10M players ÷ 10,000/container) | Concurrent players/rooms |
 | 5 | Kafka (Message Bus) | Kafka, replication factor 3, 128 partitions on the "game ended" topic (decision 11) | Yes (replicated log) | ~30 brokers | Game-end event rate (~83k/s) |
 | 6 | DB Writer Worker | Consumes Kafka, writes to DB | No | ~50 | Game-end write rate |
@@ -383,15 +342,12 @@ deployed independently in each of the 3 regions (Americas/Europe/Asia-Pacific), 
 - **Gateway / Auth (WebSocket)** — Register/Login against the DB cluster
   (`AuthService`'s job today, unchanged conceptually), and the entry point for "I want to
   play" requests, forwarded to Matchmaking. Holds no per-player game state.
-- **Matchmaking & Room Registry (Redis)** — the *global* view of who's waiting (the
-  distributed version of this repo's `MatchmakingService`/`RoomService` — must be global,
-  or players on different servers could never be matched together). Pairs by ELO with the
-  same widening-window algorithm already implemented, then calls Game Allocator to place
-  the new room and tells both clients where to redirect (decision 2).
-- **Game Allocator (Redis-backed, decision 10)** — a separate service from Matchmaking:
-  picks a Game Server for a new room (least-loaded selection) and atomically reserves the
-  capacity on it, on Matchmaking's behalf, once a pair is found. Owns nothing Matchmaking
-  needs — only Game Server room-counts and drain status (decision 9).
+- **Matchmaking & Room Registry (Redis)** — the *global* view of who's waiting and which
+  room lives on which Game Server (the distributed version of this repo's
+  `MatchmakingService`/`RoomService` — must be global, or players on different servers
+  could never be matched together). Pairs by ELO with the same widening-window algorithm
+  already implemented, picks a Game Server for a new room, writes the assignment to the
+  registry, and tells both clients where to redirect (decision 2).
 - **Game Server fleet (Python)** — the actual product. Each container runs many
   independent `GameEngine`/`RealTimeArbiter` instances, one per assigned room, ticking at
   30 ms, validating/applying moves, broadcasting diffs at 10 Hz (decision 4). Never talks
@@ -424,11 +380,6 @@ flowchart TB
         MM2["Matchmaking N"]
     end
 
-    subgraph alloctier ["Game Allocator tier (decision 10)"]
-        AL1["Allocator 1"]
-        AL2["Allocator N"]
-    end
-
     Redis[("Redis Cluster<br/>queue + room registry + session cache")]
 
     subgraph gstier ["Game Server fleet (Python, ~1,000 containers)"]
@@ -454,18 +405,12 @@ flowchart TB
     GW2 -->|join queue / create room| MM2
     MM1 <--> Redis
     MM2 <--> Redis
-    MM1 -->|"pair found: place this room"| AL1
-    MM2 -->|"pair found: place this room"| AL2
-    AL1 <--> Redis
-    AL2 <--> Redis
     MM1 -.->|"redirect: connect to Game Server, room R"| C1
     MM2 -.->|redirect| C2
     C1 ==>|"moves / 10Hz diffs, JSON, direct"| GS1
     C2 ==>|"moves / 10Hz diffs, JSON, direct"| GS2
     GS1 <-->|room heartbeat / lookups| Redis
     GS2 <-->|room heartbeat / lookups| Redis
-    GS1 -->|game ended: decrement room count| Redis
-    GS2 -->|game ended: decrement room count| Redis
     GS1 -->|game ended| Bus
     GS2 -->|game ended| Bus
     Bus --> W1
@@ -479,11 +424,8 @@ flowchart TB
 - **Client ↔ Game Server (post-redirect):** a **direct** connection (decision 2), JSON
   over this repo's existing length-prefixed framing (decision 6), carrying moves in and
   10 Hz board diffs out (decision 4).
-- **Gateway/Matchmaking/Allocator ↔ Redis:** the Redis wire protocol (RESP) — low-latency
+- **Gateway/Matchmaking ↔ Redis:** the Redis wire protocol (RESP) — low-latency
   key/value and queue operations.
-- **Matchmaking → Game Allocator:** a synchronous internal request, once per match found
-  (~83k/s, decision 10) — Matchmaking blocks briefly on the placement result before it can
-  tell either client where to redirect.
 - **Game Server → Kafka → DB Writers → PostgreSQL+Citus:** asynchronous, at game-end
   only (decision 3). The real-time hot path never talks to the database directly.
 - All server-to-server traffic stays inside a private network (VPC), mTLS between
@@ -496,7 +438,6 @@ flowchart TB
 | Edge / LB | Invisible to users | Redundant instances; orchestrator replaces it |
 | Gateway / Auth | In-flight requests fail | Stateless — client retries against another instance |
 | Matchmaking & Room Registry (compute) | Queued requests on that instance are lost | Client retries; durable state lives in Redis, not this tier |
-| Game Allocator (decision 10) | In-flight placement requests are lost | Matchmaking retries against another Allocator instance; already-committed assignments are untouched (Redis, not this tier) — no room is ever mis-assigned, since decision 10's atomic ops mean a request either fully commits or is safely retried from scratch |
 | Redis Cluster | One shard's primary fails | Automatic failover to a replica (Cluster/Sentinel); worst case an in-flight match is dropped and both players re-queue — cheap, since matchmaking data isn't durable-critical |
 | Game Server (crash) | All rooms on that container are lost | Bounded loss (≤90s of casual gameplay per room — decision 7's whole premise; no data recorded at all, per decision 12). Orchestrator replaces the container; affected clients re-queue via Matchmaking. No hot standby needed per room |
 | Game Server (routine deploy) | N/A — voluntary, not a failure | Decision 9: preStop hook drains in-flight rooms before exit (zero games lost, not just bounded), `PodDisruptionBudget` caps concurrent draining containers so the rest of the fleet absorbs the load |
@@ -559,14 +500,11 @@ to change.
 │   │   ├── room_registry.py           # evolves server/services/room_service.py -- same
 │   │   │                               #   RoomStatus/JoinOutcome model, Redis-backed instead
 │   │   │                               #   of an in-process dict (flagged code change)
-│   │   └── matchmaking_queue.py       # evolves server/services/matchmaking_service.py --
-│   │                                   #   same ELO-window algorithm, Redis sorted set instead
-│   │                                   #   of an in-process list, + decision 8's region-widening
-│   │
-│   ├── allocator/                     # NEW -- split out from matchmaking (decision 10)
-│   │   ├── main.py
+│   │   ├── matchmaking_queue.py       # evolves server/services/matchmaking_service.py --
+│   │   │                               #   same ELO-window algorithm, Redis sorted set instead
+│   │   │                               #   of an in-process list, + decision 8's region-widening
 │   │   └── game_server_selector.py    # NEW -- least-loaded selection + decision 10's atomic
-│   │                                   #   INCR/SETNX assignment (moved here from matchmaking)
+│   │                                   #   INCR/SETNX assignment
 │   │
 │   ├── game_server/
 │   │   ├── main.py                    # ~= server_main.py, narrowed
@@ -603,9 +541,8 @@ to change.
 | Service | Inherits as-is | Evolves (same model, new backing store) | New code |
 |---|---|---|---|
 | `services/gateway/` | `AuthService` (Register/Login flow, bcrypt, ELO field) | — | WebSocket transport loop, Redis session-directory lookups |
-| `services/matchmaking/` | `RoomStatus`/`JoinOutcome` enums, the ELO-window widening formula | `RoomService`, `MatchmakingService` — same algorithms, Redis instead of in-process dict/list | Region-widening exception path (decision 8); calls `services/allocator/` for room placement instead of doing it itself (decision 10) |
-| `services/allocator/` | — | — | Least-loaded Game Server selection + atomic `INCR`/`SETNX` room assignment (decision 10) — split out of `matchmaking`, entirely new service code |
-| `services/game_server/` | `server/game/rules/*`, `RealTimeArbiter`, `move_scheduler.py`, `collision_service.py` — all of it, untouched | `server/network/server.py`'s `NetworkServer` — same tick/broadcast loop, with Auth/Room/Matchmaking message handling deleted (moved out) | `drain.py` (decision 9), diff-based 10Hz broadcast (decision 4); reports room-count decrements to `services/allocator/` on game end |
+| `services/matchmaking/` | `RoomStatus`/`JoinOutcome` enums, the ELO-window widening formula | `RoomService`, `MatchmakingService` — same algorithms, Redis instead of in-process dict/list | Region-widening exception path (decision 8), atomic capacity/assignment ops (decision 10) |
+| `services/game_server/` | `server/game/rules/*`, `RealTimeArbiter`, `move_scheduler.py`, `collision_service.py` — all of it, untouched | `server/network/server.py`'s `NetworkServer` — same tick/broadcast loop, with Auth/Room/Matchmaking message handling deleted (moved out) | `drain.py` (decision 9), diff-based 10Hz broadcast (decision 4) |
 | `services/event_consumer/` | `GameRecord`/`UserRecord` dataclass shapes | `UserRepository`/`GameHistoryRepository` — same query surface, PostgreSQL+Citus instead of SQLite, `update_elo` becomes a delta increment (decision 11) | Kafka consumer/partition handling |
 
 `shared/`, `core/`, and `engine/` are the one dependency every service above imports and
