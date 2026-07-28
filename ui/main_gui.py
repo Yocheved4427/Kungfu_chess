@@ -1,27 +1,24 @@
 import pathlib
-import sys
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parent
-GRAPHICS_DIR = REPO_ROOT / "ui" / "graphics"
-# asset_loader.py / img.py / graphics_board_renderer.py import each other as
-# flat sibling modules (e.g. `from img import Img`), which only resolves if
-# their own directory is on sys.path.
-sys.path.insert(0, str(GRAPHICS_DIR))
+# One level deeper than before this file lived at the repo root (ui/main_gui.py
+# instead of main_gui.py) -- .parent.parent, not .parent, or ASSETS_ROOT below
+# would silently resolve inside ui/ instead of the actual repo root.
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 import logging
 
 import cv2
 
-from asset_loader import AssetLoader
-from graphics_board_renderer import BOARD_MARGIN_PX, SIDE_PANEL_WIDTH_PX
-from img import Img
+from src.utils.asset_manager import AssetLoader
+from src.rendering.renderer import BOARD_MARGIN_PX, SIDE_PANEL_WIDTH_PX
+from src.rendering.img import Img
 
 from shared.models.color import Color
-from dashboard_view import run_dashboard_screen
+from ui.dashboard_view import run_dashboard_screen
 from input.board_mapper import BoardMapper
-from logger_config import setup_logging
-from login_view import run_login_screen
-from network_client import NetworkClient
+from shared.logger_config import setup_logging
+from ui.login_view import run_login_screen
+from ui.network_client import NetworkClient
 from ui.cli import _parse_args, _resolve_cell_size
 from ui.game_factory import _load_board
 from ui.game_loop import WINDOW_NAME, _run_network_player, _run_single_player, _run_two_player

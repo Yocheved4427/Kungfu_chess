@@ -8,7 +8,7 @@ import numpy as np
 class Img:
     def __init__(self):
         self.img = None
-    
+
     def read(self, path: str | pathlib.Path,
              size: tuple[int, int] | None = None,
              keep_aspect: bool = False,

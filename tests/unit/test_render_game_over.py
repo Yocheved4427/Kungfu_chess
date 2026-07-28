@@ -1,10 +1,6 @@
 """
 Unit tests for GraphicsBoardRenderer.render_game_over's visual output.
 
-ui/graphics modules import each other as flat sibling modules, which only
-resolves if ui/graphics itself is on sys.path — same setup as
-test_piece_view.py (see that file's own header comment for why).
-
 render_game_over takes an already-computed *progress* float (see
 GameOverAnimation, tested separately in test_game_over_animation.py) —
 so these tests drive it with fixed progress values directly rather than
@@ -17,22 +13,18 @@ used here specifically to keep that out of the picture entirely).
 from __future__ import annotations
 
 import pathlib
-import sys
 
 import numpy as np
 
-GRAPHICS_DIR = pathlib.Path(__file__).resolve().parents[2] / "ui" / "graphics"
-sys.path.insert(0, str(GRAPHICS_DIR))
+from src.utils.asset_manager import AssetLoader
+from src.rendering.renderer import GraphicsBoardRenderer
+from src.rendering.img import Img
 
-from asset_loader import AssetLoader  # noqa: E402
-from graphics_board_renderer import GraphicsBoardRenderer  # noqa: E402
-from img import Img  # noqa: E402
-
-from shared.models.color import Color  # noqa: E402
-from shared.models.board import TextBoard  # noqa: E402
-from engine.game_state import GameState  # noqa: E402
-from engine.snapshot import GameSnapshot  # noqa: E402
-from input.board_mapper import BoardMapper  # noqa: E402
+from shared.models.color import Color
+from shared.models.board import TextBoard
+from engine.game_state import GameState
+from engine.snapshot import GameSnapshot
+from input.board_mapper import BoardMapper
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 PIECES_ROOT = REPO_ROOT / "assets" / "pieces3"

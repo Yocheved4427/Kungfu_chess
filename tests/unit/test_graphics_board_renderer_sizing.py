@@ -2,10 +2,6 @@
 Unit tests for GraphicsBoardRenderer's board_size constructor parameter
 (added to support main_gui.py's --scale/--cell-size CLI options).
 
-ui/graphics modules import each other as flat sibling modules, which only
-resolves if ui/graphics itself is on sys.path — same setup as
-test_piece_view.py (see that file's own header comment for why).
-
 Scope: only whether the background board image ends up at the requested
 pixel size (or, when board_size is omitted, its native size — today's
 unchanged default behaviour). Not in scope: BoardMapper's own pixel<->cell
@@ -16,16 +12,12 @@ arithmetic at a given cell size (test_board_mapper.py), or main_gui.py's
 from __future__ import annotations
 
 import pathlib
-import sys
 
-GRAPHICS_DIR = pathlib.Path(__file__).resolve().parents[2] / "ui" / "graphics"
-sys.path.insert(0, str(GRAPHICS_DIR))
+from src.utils.asset_manager import AssetLoader
+from src.rendering.renderer import GraphicsBoardRenderer
+from src.rendering.img import Img
 
-from asset_loader import AssetLoader  # noqa: E402
-from graphics_board_renderer import GraphicsBoardRenderer  # noqa: E402
-from img import Img  # noqa: E402
-
-from input.board_mapper import BoardMapper  # noqa: E402
+from input.board_mapper import BoardMapper
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 PIECES_ROOT = REPO_ROOT / "assets" / "pieces3"

@@ -1,7 +1,7 @@
 import logging
 import pathlib
 
-from sprite_sequence import SpriteSequence
+from src.rendering.sprite_sequence import SpriteSequence
 
 logger = logging.getLogger(__name__)
 

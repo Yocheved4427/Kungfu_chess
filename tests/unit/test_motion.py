@@ -1,14 +1,5 @@
 """
-Unit tests for ui/graphics/motion.py (interpolate_position).
-
-ui/graphics modules import each other as flat sibling modules, which only
-resolves if ui/graphics itself is on sys.path — same setup as
-test_piece_view.py/test_graphics_board_renderer_sizing.py (see those
-files' own header comments for why). motion.py itself only imports
-core.models (a normal package import, not a flat sibling one), so this
-sys.path insertion is only needed here for symmetry/consistency with how
-every other ui/graphics test file sets itself up, not because
-interpolate_position itself needs anything from ui/graphics.
+Unit tests for src/rendering/motion.py (interpolate_position).
 
 Scope: pure math against hand-built PendingMoves — no board, no engine,
 no rendering. GameEngine actually building a real PendingMove's
@@ -18,16 +9,10 @@ test_realtime_conflicts.py.
 
 from __future__ import annotations
 
-import pathlib
-import sys
+from src.rendering.motion import interpolate_position
 
-GRAPHICS_DIR = pathlib.Path(__file__).resolve().parents[2] / "ui" / "graphics"
-sys.path.insert(0, str(GRAPHICS_DIR))
-
-from motion import interpolate_position  # noqa: E402
-
-from shared.models.cell import Cell  # noqa: E402
-from core.models import MoveCheckpoint, PendingMove  # noqa: E402
+from shared.models.cell import Cell
+from core.models import MoveCheckpoint, PendingMove
 
 
 def _pm(

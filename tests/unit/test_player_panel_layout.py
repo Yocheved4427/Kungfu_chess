@@ -12,10 +12,6 @@ board, and the fix for the two visual bugs that layout replaces:
      INSIDE the top-left occupied cell's own pixel range, not merely
      near an edge.
 
-ui/graphics modules import each other as flat sibling modules, which only
-resolves if ui/graphics itself is on sys.path — same setup as
-test_piece_view.py (see that file's own header comment for why).
-
 Scope: canvas sizing, panel positions, and the actual bug-fix invariant
 (the board's own pixel region is never touched by panel drawing) --
 render()'s own per-piece drawing is already covered by test_piece_view.py
@@ -26,28 +22,24 @@ test_move_history_tracker.py. Nothing here re-tests either.
 from __future__ import annotations
 
 import pathlib
-import sys
 
 import numpy as np
 
-GRAPHICS_DIR = pathlib.Path(__file__).resolve().parents[2] / "ui" / "graphics"
-sys.path.insert(0, str(GRAPHICS_DIR))
-
-from asset_loader import AssetLoader  # noqa: E402
-from graphics_board_renderer import (  # noqa: E402
+from src.utils.asset_manager import AssetLoader
+from src.rendering.renderer import (
     BOARD_MARGIN_PX,
     PANEL_BOX_HEIGHT_PX,
     SIDE_PANEL_BACKGROUND_BGRA,
     SIDE_PANEL_WIDTH_PX,
     GraphicsBoardRenderer,
 )
-from img import Img  # noqa: E402
+from src.rendering.img import Img
 
-from shared.models.color import Color  # noqa: E402
-from shared.models.cell import Cell  # noqa: E402
-from shared.models.board import TextBoard  # noqa: E402
-from engine.game_state import GameState  # noqa: E402
-from engine.move_history_tracker import CompletedMove  # noqa: E402
+from shared.models.color import Color
+from shared.models.cell import Cell
+from shared.models.board import TextBoard
+from engine.game_state import GameState
+from engine.move_history_tracker import CompletedMove
 from engine.snapshot import GameSnapshot  # noqa: E402
 from input.board_mapper import BoardMapper  # noqa: E402
 

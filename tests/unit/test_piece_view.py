@@ -1,12 +1,6 @@
 """
-Unit tests for ui/graphics/piece_view.py and the piece-view lifecycle
+Unit tests for src/rendering/piece_view.py and the piece-view lifecycle
 GraphicsBoardRenderer drives on top of it.
-
-ui/graphics modules (piece_view, graphics_board_renderer, asset_loader,
-...) import each other as flat sibling modules (`from img import Img`),
-which only resolves if ui/graphics itself is on sys.path — the same
-setup main_gui.py does at import time. No other test file needs this,
-since nothing else in the suite touches ui/graphics.
 
 Scope:
   - PieceView.sync()'s own diffing (move/jump entry, move's non-looping
@@ -20,19 +14,15 @@ Scope:
 from __future__ import annotations
 
 import pathlib
-import sys
 
-GRAPHICS_DIR = pathlib.Path(__file__).resolve().parents[2] / "ui" / "graphics"
-sys.path.insert(0, str(GRAPHICS_DIR))
+from src.utils.asset_manager import AssetLoader
+from src.rendering.renderer import GraphicsBoardRenderer
+from src.rendering.img import Img
+from src.rendering.piece_state_machine import PieceStateMachine
+from src.rendering.piece_view import PieceView
 
-from asset_loader import AssetLoader  # noqa: E402
-from graphics_board_renderer import GraphicsBoardRenderer  # noqa: E402
-from img import Img  # noqa: E402
-from piece_state_machine import PieceStateMachine  # noqa: E402
-from piece_view import PieceView  # noqa: E402
-
-from shared.models.cell import Cell  # noqa: E402
-from shared.models.board import TextBoard  # noqa: E402
+from shared.models.cell import Cell
+from shared.models.board import TextBoard
 from engine.game import GameEngine  # noqa: E402
 from engine.game_state import GameState  # noqa: E402
 from engine.snapshot import GameSnapshot, PieceSnapshot  # noqa: E402

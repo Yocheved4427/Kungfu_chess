@@ -1,9 +1,5 @@
 """
-Unit tests for ui/graphics/game_over_animation.py (GameOverAnimation).
-
-ui/graphics modules import each other as flat sibling modules, which only
-resolves if ui/graphics itself is on sys.path — same setup as
-test_piece_view.py (see that file's own header comment for why).
+Unit tests for src/rendering/game_over_animation.py (GameOverAnimation).
 
 Uses a fake, monotonically-advanceable clock (monkeypatched onto the real
 time.time, which game_over_animation.py calls directly) rather than
@@ -14,13 +10,7 @@ instantly, not hope a sleep() duration lines up.
 
 from __future__ import annotations
 
-import pathlib
-import sys
-
-GRAPHICS_DIR = pathlib.Path(__file__).resolve().parents[2] / "ui" / "graphics"
-sys.path.insert(0, str(GRAPHICS_DIR))
-
-from game_over_animation import FADE_DURATION_SEC, GameOverAnimation  # noqa: E402
+from src.rendering.game_over_animation import FADE_DURATION_SEC, GameOverAnimation
 
 
 class _FakeSnapshot:

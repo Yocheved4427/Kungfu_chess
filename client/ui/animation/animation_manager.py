@@ -1,28 +1,14 @@
 from __future__ import annotations
 
 import pathlib
-import sys
 from typing import TYPE_CHECKING, Dict, Union
 
-_REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
-_GRAPHICS_DIR = _REPO_ROOT / "ui" / "graphics"
-# ui/graphics' own modules (asset_loader.py, piece_state_machine.py,
-# piece_view.py, sprite_sequence.py, img.py) import each other as flat
-# sibling modules (e.g. `from img import Img`), which only resolves if
-# their own directory is on sys.path — same convention main_gui.py and
-# login_view.py already use for exactly this reason (see either
-# module's own top-of-file comment). Done here directly (not just
-# relied on via some other module having already done it) so this
-# module also works if imported/tested on its own.
-if str(_GRAPHICS_DIR) not in sys.path:
-    sys.path.insert(0, str(_GRAPHICS_DIR))
-
-from asset_loader import AssetLoader  # noqa: E402
-from piece_state_machine import PieceStateMachine  # noqa: E402
-from piece_view import PieceView  # noqa: E402
+from src.utils.asset_manager import AssetLoader
+from src.rendering.piece_state_machine import PieceStateMachine
+from src.rendering.piece_view import PieceView
 
 if TYPE_CHECKING:
-    from img import Img
+    from src.rendering.img import Img
 
 # ---------------------------------------------------------------------------
 # Kung Fu Chess – Client Animation Manager
@@ -33,7 +19,7 @@ if TYPE_CHECKING:
 # frames for the online client's Active Game screen
 # (client.ui.screens.online_game_screen).
 #
-# Reuses, rather than re-implements, ui/graphics' existing, already-
+# Reuses, rather than re-implements, src.rendering's existing, already-
 # tested sprite pipeline:
 #   * AssetLoader   — sprite/config.json loading, one
 #     {state_name: SpriteSequence} per piece code, cached per code.

@@ -26,31 +26,17 @@ covered by test_render_game_over.py / test_move_history_panel_rendering.py
 
 from __future__ import annotations
 
-import pathlib
-import sys
-
 import numpy as np
 
-# ui/graphics modules (img, in particular) import each other as flat
-# sibling modules, which only resolves if ui/graphics itself is on
-# sys.path -- same setup as test_piece_view.py/test_render_game_over.py
-# (see those files' own header comments for why). ui.game_loop itself
-# relies on its caller having already done this (same convention as
-# graphics_board_renderer.py), so this test file does it explicitly
-# before importing ui.game_loop, same as every other test file here
-# that touches ui/graphics directly.
-GRAPHICS_DIR = pathlib.Path(__file__).resolve().parents[2] / "ui" / "graphics"
-sys.path.insert(0, str(GRAPHICS_DIR))
+from src.rendering.img import Img
 
-from img import Img  # noqa: E402
-
-from shared.models.color import Color  # noqa: E402
-from shared.models.cell import Cell  # noqa: E402
-from shared.models.board import TextBoard  # noqa: E402
-from engine.game import GameEngine  # noqa: E402
-from engine.game_state import GameState  # noqa: E402
-from input.board_mapper import BoardMapper  # noqa: E402
-from ui import game_factory, game_loop  # noqa: E402
+from shared.models.color import Color
+from shared.models.cell import Cell
+from shared.models.board import TextBoard
+from engine.game import GameEngine
+from engine.game_state import GameState
+from input.board_mapper import BoardMapper
+from ui import game_factory, game_loop
 
 
 class _RecordingController:

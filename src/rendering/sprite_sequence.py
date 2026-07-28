@@ -1,7 +1,7 @@
 import json
 import pathlib
 
-from img import Img
+from src.rendering.img import Img
 
 DEFAULT_FPS = 10
 DEFAULT_IS_LOOP = True
