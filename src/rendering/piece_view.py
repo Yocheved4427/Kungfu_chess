@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from piece_state_machine import PieceStateMachine
+from src.rendering.piece_state_machine import PieceStateMachine
 
 if TYPE_CHECKING:
     from engine.snapshot import PieceSnapshot
-    from img import Img
+    from src.rendering.img import Img
 
 # ---------------------------------------------------------------------------
 # Kung Fu Chess – Per-piece animation view

@@ -1,22 +1,14 @@
 from __future__ import annotations
 
 import pathlib
-import sys
 from typing import Optional
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent
-GRAPHICS_DIR = REPO_ROOT / "ui" / "graphics"
-# img.py imports its own flat siblings (e.g. `from img import Img` is
-# itself imported flatly here), which only resolves if ui/graphics is on
-# sys.path -- same setup main_gui.py's own top-of-file comment explains.
-# Done here too (not just relied on via main_gui.py having already done
-# it) so this module also works if imported/run on its own.
-sys.path.insert(0, str(GRAPHICS_DIR))
 
 import cv2
 import numpy as np
 
-from img import Img
+from src.rendering.img import Img
 
 from server.database.sqlite_db_manager import (
     DEFAULT_DB_PATH,
@@ -32,7 +24,7 @@ from server.database.sqlite_db_manager import (
 # cv2.imshow/waitKey polling) -- matching main_gui.py's own rendering
 # conventions exactly, rather than introducing Tkinter or Pygame. This
 # app already draws 100% of its own UI (panels, buttons, overlays) with
-# raw cv2 primitives (see ui/graphics/graphics_board_renderer.py); a
+# raw cv2 primitives (see src/rendering/renderer.py); a
 # login screen is no different in kind. Mixing in a second GUI toolkit
 # would also mean two separate windowing event loops (Tkinter's mainloop
 # vs. cv2's imshow/waitKey polling) competing in the same process, which
@@ -275,7 +267,7 @@ def _draw_button(screen: Img, box: "tuple[int, int, int, int]", label: str, colo
 
 
 if __name__ == "__main__":
-    from logger_config import setup_logging
+    from shared.logger_config import setup_logging
 
     setup_logging()
     profile = run_login_screen()

@@ -4,7 +4,7 @@ import argparse
 import logging
 import time
 
-from logger_config import setup_logging
+from shared.logger_config import setup_logging
 from server.database.sqlite_db_manager import DEFAULT_DB_PATH, init_db
 from shared.constants import DEFAULT_HOST
 from server.network.server import DEFAULT_PORT, NetworkServer

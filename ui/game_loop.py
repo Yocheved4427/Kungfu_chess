@@ -6,10 +6,10 @@ import time
 import cv2
 import numpy as np
 
-from asset_loader import AssetLoader
-from game_over_animation import GameOverAnimation
-from graphics_board_renderer import GraphicsBoardRenderer
-from img import Img
+from src.utils.asset_manager import AssetLoader
+from src.rendering.game_over_animation import GameOverAnimation
+from src.rendering.renderer import GraphicsBoardRenderer
+from src.rendering.img import Img
 
 from controllers.click_controller import ClickController
 from shared.models.color import Color
@@ -21,7 +21,7 @@ from engine.move_history_tracker import MoveHistoryTracker
 from engine.score_tracker import ScoreTracker
 from engine.snapshot import BoardSnapshot, GameSnapshot
 from input.board_mapper import BoardMapper
-from network_client import NetworkClient
+from ui.network_client import NetworkClient
 from ui.game_factory import _new_game
 
 WINDOW_NAME = "Kung Fu Chess"

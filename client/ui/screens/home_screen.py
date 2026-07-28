@@ -1,22 +1,11 @@
 from __future__ import annotations
 
-import pathlib
-import sys
 from typing import Optional
-
-_REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
-_GRAPHICS_DIR = _REPO_ROOT / "ui" / "graphics"
-# img.py imports its own flat siblings, which only resolves if
-# ui/graphics is on sys.path — same setup login_view.py's own
-# top-of-file comment explains, done here too so this module also
-# works if imported/run on its own.
-if str(_GRAPHICS_DIR) not in sys.path:
-    sys.path.insert(0, str(_GRAPHICS_DIR))
 
 import cv2
 import numpy as np
 
-from img import Img  # noqa: E402
+from src.rendering.img import Img
 
 from client.ui.app.online_coordinator import OnlineCoordinator
 from client.ui.screens.screen_manager import Screen

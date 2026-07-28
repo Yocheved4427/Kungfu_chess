@@ -1,5 +1,5 @@
-from img import Img
-from paths import REPO_ROOT
+from src.rendering.img import Img
+from src.rendering.paths import REPO_ROOT
 
 ASSETS_ROOT = REPO_ROOT / "assets"
 BOARD_PATH = ASSETS_ROOT / "board.png"

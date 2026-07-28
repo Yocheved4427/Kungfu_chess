@@ -4,15 +4,15 @@ from typing import TYPE_CHECKING, Dict, Sequence
 
 import cv2
 
-from asset_loader import AssetLoader
+from src.utils.asset_manager import AssetLoader
 from shared.models.color import Color
 from shared.models.cell import Cell
-from img import Img
+from src.rendering.img import Img
 from input.board_mapper import BoardMapper
-from motion import interpolate_position
-from paths import REPO_ROOT
-from piece_state_machine import PieceStateMachine
-from piece_view import PieceView
+from src.rendering.motion import interpolate_position
+from src.rendering.paths import REPO_ROOT
+from src.rendering.piece_state_machine import PieceStateMachine
+from src.rendering.piece_view import PieceView
 
 if TYPE_CHECKING:
     from engine.move_history_tracker import CompletedMove
@@ -26,11 +26,11 @@ BOARD_PATH = REPO_ROOT / "assets" / "board.png"
 # from the board itself so the panel reads as a separate region.
 #
 # Used by the older, single-shared-history-panel layout (show_history_panel)
-# -- still exactly as it was, unchanged, since ui.graphics's two-player mode
-# still relies on it (see main_gui.py's _run_two_player). The newer
-# side-panel layout (show_side_panels, below) has its own, separate set of
-# constants rather than repurposing these, precisely so that reuse can't
-# accidentally change appearance out from under the older layout's callers.
+# -- still exactly as it was, unchanged, since two-player mode still relies
+# on it (see src/main.py's _run_two_player). The newer side-panel layout
+# (show_side_panels, below) has its own, separate set of constants rather
+# than repurposing these, precisely so that reuse can't accidentally change
+# appearance out from under the older layout's callers.
 HISTORY_PANEL_WIDTH_PX = 220
 HISTORY_PANEL_BACKGROUND_BGRA = (30, 30, 30, 255)
 
@@ -113,7 +113,7 @@ class GraphicsBoardRenderer:
         (see ``render()``) for ``render_move_history()`` to draw into.
         Defaults to False so every existing caller/test keeps working
         unchanged. Still used exactly as before by two-player mode
-        (``main_gui.py``'s ``_run_two_player``) — mutually exclusive with
+        (``src/main.py``'s ``_run_two_player``) — mutually exclusive with
         *show_side_panels* in practice, though nothing enforces that here.
 
         *show_side_panels*, if True, makes ``render()`` reserve
@@ -236,9 +236,8 @@ class GraphicsBoardRenderer:
         unchanged behaviour, and what single-player/hot-seat mode still
         uses — there's no second logged-in identity there to label the
         other side with). ``--two-player`` mode passes each side's own
-        logged-in username instead (see ``main_gui.py``/``ui.game_loop``),
-        since that mode has two distinct accounts to attribute White and
-        Black to.
+        logged-in username instead (see ``src/main.py``), since that mode
+        has two distinct accounts to attribute White and Black to.
 
         A separate call from ``render()`` rather than folded into it:
         ``render()``'s contract (one ``GameSnapshot`` in, the board drawn)
@@ -386,7 +385,7 @@ class GraphicsBoardRenderer:
         """Draw the animated game-over screen: a dark overlay fading in
         over *window_img*, plus "GAME OVER" and the winner (or "Draw"),
         driven by *progress* (0.0..1.0 — see
-        ``ui.graphics.game_over_animation.GameOverAnimation``).
+        ``src.rendering.game_over_animation.GameOverAnimation``).
 
         A no-op while *progress* is 0 (the game hasn't ended yet, or the
         animation genuinely hasn't advanced at all — either way there's

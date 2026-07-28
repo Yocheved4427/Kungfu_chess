@@ -1,10 +1,6 @@
 """
 Unit tests for GraphicsBoardRenderer's selection/cooldown text overlays.
 
-ui/graphics modules import each other as flat sibling modules, which only
-resolves if ui/graphics itself is on sys.path — same setup as
-test_piece_view.py (see that file's own header comment for why).
-
 Scope:
   - _draw_overlay_label() in isolation: does it actually draw something
     (any pixel change) for a selected cell, for a cell whose piece is in
@@ -21,23 +17,19 @@ Scope:
 from __future__ import annotations
 
 import pathlib
-import sys
 
 import numpy as np
 
-GRAPHICS_DIR = pathlib.Path(__file__).resolve().parents[2] / "ui" / "graphics"
-sys.path.insert(0, str(GRAPHICS_DIR))
+from src.utils.asset_manager import AssetLoader
+from src.rendering.renderer import GraphicsBoardRenderer
+from src.rendering.img import Img
 
-from asset_loader import AssetLoader  # noqa: E402
-from graphics_board_renderer import GraphicsBoardRenderer  # noqa: E402
-from img import Img  # noqa: E402
-
-from shared.models.cell import Cell  # noqa: E402
-from shared.models.board import TextBoard  # noqa: E402
-from engine.game import GameEngine  # noqa: E402
-from engine.game_state import GameState  # noqa: E402
-from engine.snapshot import GameSnapshot, PieceSnapshot  # noqa: E402
-from input.board_mapper import BoardMapper  # noqa: E402
+from shared.models.cell import Cell
+from shared.models.board import TextBoard
+from engine.game import GameEngine
+from engine.game_state import GameState
+from engine.snapshot import GameSnapshot, PieceSnapshot
+from input.board_mapper import BoardMapper
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 PIECES_ROOT = REPO_ROOT / "assets" / "pieces3"

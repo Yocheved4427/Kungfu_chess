@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import logging
 
-from logger_config import setup_logging
+from shared.logger_config import setup_logging
 from shared.constants import DEFAULT_HOST
 from server.network.server import DEFAULT_PORT
 from client.network.client import NetworkClient

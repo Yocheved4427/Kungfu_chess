@@ -3,10 +3,6 @@ Unit tests for GraphicsBoardRenderer's history-panel rendering
 (show_history_panel, render_move_history) and the render_scores anchor
 fix that had to go with it.
 
-ui/graphics modules import each other as flat sibling modules, which only
-resolves if ui/graphics itself is on sys.path — same setup as
-test_piece_view.py (see that file's own header comment for why).
-
 Scope: canvas sizing (panel reserves exactly HISTORY_PANEL_WIDTH_PX to
 the board's right, or nothing at all when disabled) and render_scores
 staying anchored to the board's own right edge rather than drifting into
@@ -17,27 +13,23 @@ the panel. Not in scope: MoveHistoryTracker's own move-detection logic
 from __future__ import annotations
 
 import pathlib
-import sys
 
 import numpy as np
 
-GRAPHICS_DIR = pathlib.Path(__file__).resolve().parents[2] / "ui" / "graphics"
-sys.path.insert(0, str(GRAPHICS_DIR))
-
-from asset_loader import AssetLoader  # noqa: E402
-from graphics_board_renderer import (  # noqa: E402
+from src.utils.asset_manager import AssetLoader
+from src.rendering.renderer import (
     HISTORY_PANEL_WIDTH_PX,
     GraphicsBoardRenderer,
 )
-from img import Img  # noqa: E402
+from src.rendering.img import Img
 
-from shared.models.color import Color  # noqa: E402
-from shared.models.cell import Cell  # noqa: E402
-from shared.models.board import TextBoard  # noqa: E402
-from engine.game_state import GameState  # noqa: E402
-from engine.move_history_tracker import CompletedMove  # noqa: E402
-from engine.snapshot import GameSnapshot  # noqa: E402
-from input.board_mapper import BoardMapper  # noqa: E402
+from shared.models.color import Color
+from shared.models.cell import Cell
+from shared.models.board import TextBoard
+from engine.game_state import GameState
+from engine.move_history_tracker import CompletedMove
+from engine.snapshot import GameSnapshot
+from input.board_mapper import BoardMapper
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 PIECES_ROOT = REPO_ROOT / "assets" / "pieces3"

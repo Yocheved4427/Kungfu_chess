@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Tracks real wall-clock elapsed time since GameSnapshot.game_over first
 # became True, the same idiom as PieceStateMachine's own _entered_at /
-# time.time() timing (see ui.graphics.piece_state_machine) — deliberately
+# time.time() timing (see src.rendering.piece_state_machine) — deliberately
 # NOT GameSnapshot.current_time (the game clock), so this animation reads
 # smoothly in real time regardless of how the game clock itself is
 # driven, matching every other animation in this codebase.

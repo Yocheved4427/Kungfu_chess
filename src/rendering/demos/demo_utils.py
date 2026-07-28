@@ -1,4 +1,4 @@
-from img import Img
+from src.rendering.img import Img
 
 
 def draw_piece_on_copy(board: Img, piece_frame: Img, x: int, y: int) -> Img:

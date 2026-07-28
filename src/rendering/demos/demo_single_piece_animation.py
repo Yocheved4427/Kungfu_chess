@@ -2,10 +2,10 @@ import time
 
 import cv2
 
-from asset_loader import AssetLoader
-from demo_utils import draw_piece_on_copy
-from img import Img
-from paths import REPO_ROOT
+from src.utils.asset_manager import AssetLoader
+from src.rendering.demos.demo_utils import draw_piece_on_copy
+from src.rendering.img import Img
+from src.rendering.paths import REPO_ROOT
 
 ASSETS_BASE = REPO_ROOT / "assets"
 BOARD_PATH = ASSETS_BASE / "board.png"

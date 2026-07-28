@@ -12,7 +12,7 @@ from websockets.exceptions import ConnectionClosed
 
 from engine.game import GameEngine
 from engine.game_state import GameState
-from logger_config import setup_logging
+from shared.logger_config import setup_logging
 from server.algebraic import AlgebraicNotationError, algebraic_to_cell
 from shared.constants import DEFAULT_HOST, DEFAULT_PORT
 from shared.models.board import TextBoard
