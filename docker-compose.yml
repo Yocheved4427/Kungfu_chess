@@ -115,6 +115,32 @@ services:
       start_period: 30s
     networks: [kungfu-net]
 
+  # NATS Core -- pub/sub transport for server/nats/game_server.py and
+  # client/nats_client.py's room-based subjects (game.room.<room_id>.events
+  # / .state).
+  #
+  # NOTE: `nats:latest` (the plain tag) ships a minimal, distroless-style
+  # image with NO shell/wget/curl -- the server itself runs fine, but a
+  # shell-based HEALTHCHECK can't exec inside it at all (verified: `docker
+  # exec kfc-nats sh` fails with "executable file not found in $PATH").
+  # Using the `-alpine` variant instead, same reasoning as this file's
+  # earlier bitnami/kafka -> apache/kafka substitution: the literal
+  # `:latest` tag doesn't support what's being asked of it.
+  nats:
+    image: nats:2-alpine
+    container_name: kfc-nats
+    command: ["-m", "${NATS_MONITOR_PORT}"]  # enables the HTTP monitoring endpoint healthcheck uses below
+    ports:
+      - "${NATS_PORT}:${NATS_PORT}"                # client connections (NATS Core protocol)
+      - "${NATS_MONITOR_PORT}:${NATS_MONITOR_PORT}" # HTTP monitoring (/healthz, /varz, ...)
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:${NATS_MONITOR_PORT}/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks: [kungfu-net]
+
   # -------------------------------------------------------------------
   # Application services (Server_Design.md, Part B)
   # -------------------------------------------------------------------
