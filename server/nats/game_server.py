@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 import nats
+import redis.asyncio as redis
 from nats.aio.client import Client as NatsClient
 from nats.aio.msg import Msg
 
@@ -50,9 +51,26 @@ logger = logging.getLogger(__name__)
 # deployment pairing this with server/services/matchmaking_service.py --
 # this server has no opinion on how a room_id was chosen, only on what
 # happens once two players have joined one.
+#
+# Spectator support: alongside its own NATS state broadcast, this server
+# ALSO publishes a lightweight cell-diff to Redis Pub/Sub whenever a
+# room's board actually changes -- for server/spectator/gateway.py to
+# consume. This is a SECOND, independent pub/sub channel for a SECOND,
+# independent audience (spectators, potentially thousands per room, vs.
+# exactly 2 players over NATS) -- not a replacement for the NATS state
+# broadcast, and this server has zero knowledge of how many spectators
+# exist or how they connect (that's the Gateway's job entirely, see its
+# own module docstring). Redis was chosen over a second NATS subject
+# specifically because the Gateway needs to buffer/delay each message
+# (decision 3 in the spectator spec) rather than just relay it, which is
+# a Gateway-side concern either way -- reusing the SAME broadcast loop
+# that already runs at 10Hz (Server_Design.md decision 4) rather than
+# adding a second one, since "the board changed" is already known there.
 # ---------------------------------------------------------------------------
 
 DEFAULT_NATS_URL = "nats://localhost:4222"
+DEFAULT_REDIS_HOST = "localhost"
+DEFAULT_REDIS_PORT = 6379
 EVENTS_WILDCARD_SUBJECT = "game.room.*.events"  # single wildcard token -- matches any room_id
 MAX_PLAYERS = 2
 TICK_INTERVAL_S = 0.03      # 30ms simulation tick, unchanged from every other real-time loop in this repo
@@ -65,6 +83,15 @@ def events_subject(room_id: str) -> str:
 
 def state_subject(room_id: str) -> str:
     return f"game.room.{room_id}.state"
+
+
+def diff_channel(room_id: str) -> str:
+    """Redis Pub/Sub channel server/spectator/gateway.py subscribes to
+    (via a `game.room.*.diff` pattern subscription) -- deliberately the
+    same `game.room.<room_id>.*` shape as the NATS subjects above, even
+    though it's a different broker, so the room-addressing scheme reads
+    as one consistent convention across both transports."""
+    return f"game.room.{room_id}.diff"
 
 
 @dataclass
@@ -80,6 +107,7 @@ class _RoomGame:
     tick_task: Optional[asyncio.Task] = None
     broadcast_task: Optional[asyncio.Task] = None
     ended: bool = False
+    last_broadcast_rows: Optional[List[str]] = None  # for spectator cell-diffing, see _diff_cells
 
 
 class _RoomObserver(Observer):
@@ -106,9 +134,17 @@ class NatsGameServer:
     "validates the logic and cooldowns in RAM", per spec.
     """
 
-    def __init__(self, nats_url: str = DEFAULT_NATS_URL) -> None:
+    def __init__(
+        self,
+        nats_url: str = DEFAULT_NATS_URL,
+        redis_host: str = DEFAULT_REDIS_HOST,
+        redis_port: int = DEFAULT_REDIS_PORT,
+    ) -> None:
         self._nats_url = nats_url
+        self._redis_host = redis_host
+        self._redis_port = redis_port
         self._nc: Optional[NatsClient] = None
+        self._redis: Optional[redis.Redis] = None
         self._rooms: Dict[str, _RoomGame] = {}
 
     async def start(self) -> None:
@@ -119,9 +155,15 @@ class NatsGameServer:
             self._nats_url, EVENTS_WILDCARD_SUBJECT,
         )
 
+        self._redis = redis.Redis(host=self._redis_host, port=self._redis_port)
+        await self._redis.ping()
+        logger.info("Connected to Redis at %s:%d for spectator diffs", self._redis_host, self._redis_port)
+
     async def close(self) -> None:
         if self._nc is not None:
             await self._nc.drain()
+        if self._redis is not None:
+            await self._redis.aclose()
 
     async def run_forever(self) -> None:
         await self.start()
@@ -233,16 +275,68 @@ class NatsGameServer:
     async def _broadcast_loop(self, room: _RoomGame) -> None:
         while not room.ended:
             await asyncio.sleep(BROADCAST_INTERVAL_S)
+            current_rows = room.board.get_rows()
             snapshot = {
                 "type": "snapshot",
                 "current_time": room.state.current_time,
-                "board": room.board.get_rows(),
+                "board": current_rows,
                 "game_over": room.state.game_over,
                 "winner": room.state.winner.value if room.state.winner is not None else None,
                 "events": room.pending_events,
             }
             room.pending_events = []
             await self._publish_state(room.room_id, snapshot)
+            await self._publish_diff_if_changed(room, current_rows)
+
+    async def _publish_diff_if_changed(self, room: _RoomGame, current_rows: List[str]) -> None:
+        """Publish a lightweight {row, col, piece} cell-diff to Redis for
+        server/spectator/gateway.py, but only when something actually
+        moved since the last broadcast -- "whenever a valid move occurs",
+        per spec, rather than an empty diff every 100ms while a room is
+        idle between moves.
+
+        Computed by comparing full board rows rather than inferring a
+        diff from the MoveCompletedEvent that triggered it, deliberately:
+        a bare "piece moved from A to B" doesn't capture what happened at
+        the destination cell (a capture) or a landing-square promotion
+        (engine.game.GameEngine._maybe_promote silently rewrites the
+        board without its own event) -- comparing the actual before/after
+        cell contents is correct regardless of *why* a cell changed.
+        """
+        changed_cells = self._diff_cells(room.last_broadcast_rows, current_rows)
+        room.last_broadcast_rows = current_rows
+        if not changed_cells:
+            return
+
+        payload = {
+            "type": "diff",
+            "room_id": room.room_id,
+            "changed_cells": changed_cells,
+            "current_time": room.state.current_time,
+            "game_over": room.state.game_over,
+            "winner": room.state.winner.value if room.state.winner is not None else None,
+        }
+        await self._redis.publish(diff_channel(room.room_id), json.dumps(payload))
+
+    @staticmethod
+    def _diff_cells(previous_rows: Optional[List[str]], current_rows: List[str]) -> List[dict]:
+        """Every (row, col) whose token differs between *previous_rows*
+        and *current_rows*, as ``{"row": r, "col": c, "piece": token}``.
+        ``previous_rows`` is ``None`` on a room's very first broadcast --
+        every occupied cell counts as "changed" then, since a spectator
+        gateway has nothing to diff against yet either (it starts every
+        room from the same standard layout -- see
+        server/spectator/gateway.py's `_SpectatorRoom.public_board`)."""
+        changed: List[dict] = []
+        for row_index, new_row in enumerate(current_rows):
+            old_row = previous_rows[row_index] if previous_rows is not None else None
+            old_tokens = old_row.split() if old_row is not None else []
+            new_tokens = new_row.split()
+            for col_index, new_token in enumerate(new_tokens):
+                old_token = old_tokens[col_index] if col_index < len(old_tokens) else None
+                if new_token != old_token:
+                    changed.append({"row": row_index, "col": col_index, "piece": new_token})
+        return changed
 
     async def _handle_game_over(self, room: _RoomGame) -> None:
         if room.ended:
@@ -264,10 +358,12 @@ class NatsGameServer:
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Kung Fu Chess NATS game server")
     parser.add_argument("--nats-url", default=DEFAULT_NATS_URL, help=f"Default: {DEFAULT_NATS_URL}")
+    parser.add_argument("--redis-host", default=DEFAULT_REDIS_HOST, help=f"Default: {DEFAULT_REDIS_HOST}")
+    parser.add_argument("--redis-port", type=int, default=DEFAULT_REDIS_PORT, help=f"Default: {DEFAULT_REDIS_PORT}")
     args = parser.parse_args()
 
     setup_logging()
-    server = NatsGameServer(args.nats_url)
+    server = NatsGameServer(args.nats_url, args.redis_host, args.redis_port)
     await server.run_forever()
 
 
