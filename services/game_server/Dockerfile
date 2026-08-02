@@ -31,6 +31,12 @@ COPY ui/ ./ui/
 # UNCHANGED (Server_Design.md decision 7: no rewrite).
 COPY server/ ./server/
 
+# Top-level services/__init__.py -- main.py now imports sibling modules
+# via `services.game_server.domain`/`.room_service`/`.serialization`
+# (the Boundary Lines refactor split what used to be one file), which
+# needs `services` itself to be a real package, not just rely on
+# Python's implicit namespace-package fallback.
+COPY services/__init__.py ./services/__init__.py
 COPY services/game_server/ ./services/game_server/
 
 RUN useradd --create-home --uid 1000 appuser && chown -R appuser:appuser /app
