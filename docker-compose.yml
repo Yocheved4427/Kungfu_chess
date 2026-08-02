@@ -155,6 +155,9 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: ${REDIS_PORT}
       MATCHMAKING_URL: http://matchmaking:${MATCHMAKING_PORT}
+      # Used by POST /rooms/{room_id}/resume (Pause & Resume) -- the
+      # exact same Allocator a fresh match already goes through.
+      ALLOCATOR_URL: http://allocator:${ALLOCATOR_PORT}
       SESSION_TTL_S: ${SESSION_TTL_S}
       # Read by both the Dockerfile's CMD (which port uvicorn binds)
       # and its HEALTHCHECK (which port to probe) -- see
@@ -168,6 +171,8 @@ services:
       redis:
         condition: service_healthy
       matchmaking:
+        condition: service_started
+      allocator:
         condition: service_started
     networks: [kungfu-net]
 
@@ -224,6 +229,7 @@ services:
       REDIS_PORT: ${REDIS_PORT}
       KAFKA_BOOTSTRAP_SERVERS: kafka:${KAFKA_PORT}
       GAME_ENDED_TOPIC: ${GAME_ENDED_TOPIC}
+      PAUSE_TTL_S: ${PAUSE_TTL_S}
     ports:
       - "${GAME_SERVER_1_PORT}:${GAME_SERVER_1_PORT}"
     depends_on:
@@ -246,6 +252,7 @@ services:
       REDIS_PORT: ${REDIS_PORT}
       KAFKA_BOOTSTRAP_SERVERS: kafka:${KAFKA_PORT}
       GAME_ENDED_TOPIC: ${GAME_ENDED_TOPIC}
+      PAUSE_TTL_S: ${PAUSE_TTL_S}
     ports:
       - "${GAME_SERVER_2_PORT}:${GAME_SERVER_2_PORT}"
     depends_on:
@@ -264,6 +271,7 @@ services:
       POSTGRES_URI: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT}/${POSTGRES_DB}
       KAFKA_BOOTSTRAP_SERVERS: kafka:${KAFKA_PORT}
       GAME_ENDED_TOPIC: ${GAME_ENDED_TOPIC}
+      PAUSE_TTL_S: ${PAUSE_TTL_S}
       KAFKA_CONSUMER_GROUP: ${KAFKA_CONSUMER_GROUP}
       EVENT_CONSUMER_PORT: ${EVENT_CONSUMER_PORT}
     ports:
@@ -291,6 +299,7 @@ services:
       REDIS_PORT: ${REDIS_PORT}
       KAFKA_BOOTSTRAP_SERVERS: kafka:${KAFKA_PORT}
       GAME_ENDED_TOPIC: ${GAME_ENDED_TOPIC}
+      PAUSE_TTL_S: ${PAUSE_TTL_S}
       REAPER_PORT: ${REAPER_PORT}
       REAPER_INTERVAL_S: ${REAPER_INTERVAL_S}
       REAPER_TTL_S: ${REAPER_TTL_S}

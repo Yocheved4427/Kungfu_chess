@@ -6,6 +6,8 @@ import os
 import uuid
 from contextlib import asynccontextmanager
 
+import json
+
 import asyncpg
 import bcrypt
 import httpx
@@ -41,6 +43,7 @@ POSTGRES_URI = os.environ.get(
 REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 MATCHMAKING_URL = os.environ.get("MATCHMAKING_URL", "http://matchmaking:8010")
+ALLOCATOR_URL = os.environ.get("ALLOCATOR_URL", "http://allocator:8020")
 SESSION_TTL_S = int(os.environ.get("SESSION_TTL_S", "3600"))
 
 
@@ -196,6 +199,56 @@ async def matchmaking_result(token: str) -> dict:
     resp = await state.http.get(f"{MATCHMAKING_URL}/result/{username}")
     resp.raise_for_status()
     return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# Pause & Resume: a Game Server persists a paused room's full state to
+# Redis (services/game_server/main.py's own _handle_pause) and frees its
+# claimed capacity -- this endpoint is the OTHER half, reached when a
+# player wants to come back. It checks the saved state EXISTS and who it
+# belongs to, then asks the Allocator to place it on ANY available Game
+# Server via the exact same /allocate endpoint a fresh match uses
+# (decision 10's atomic INCR/SETNX behave identically either way --
+# "resuming" isn't a special case to the Allocator at all, just another
+# room_id being placed). The Gateway never touches the saved state's
+# CONTENTS -- only the assigned Game Server actually deserializes it
+# (see that service's own _restore_room), same "Gateway proxies, never
+# owns gameplay state" split every other endpoint here already follows.
+# ---------------------------------------------------------------------------
+
+class ResumeRequest(BaseModel):
+    token: str
+
+
+def _paused_key(room_id: str) -> str:
+    return f"room:{room_id}:paused"
+
+
+@app.post("/rooms/{room_id}/resume")
+async def resume_room(room_id: str, req: ResumeRequest) -> dict:
+    username = await _username_for_token(req.token)
+    async with state.pg_pool.acquire() as conn:
+        user_id = await conn.fetchval("SELECT user_id FROM users WHERE username = $1", username)
+
+    raw = await state.redis.get(_paused_key(room_id))
+    if raw is None:
+        raise HTTPException(404, f"no paused game found for room {room_id!r}")
+
+    saved = json.loads(raw)
+    player_ids = {meta.get("user_id") for meta in saved.get("players", {}).values()}
+    if user_id not in player_ids:
+        raise HTTPException(403, "you were not a player in this paused game")
+
+    resp = await state.http.post(f"{ALLOCATOR_URL}/allocate", json={"room_id": room_id})
+    resp.raise_for_status()
+    allocation = resp.json()
+
+    logger.info("Resuming room %r for %r on %s", room_id, username, allocation)
+    return {
+        "status": "resumed",
+        "room_id": room_id,
+        "game_server": {"host": allocation["host"], "port": allocation["port"]},
+    }
 
 
 # ---------------------------------------------------------------------------
