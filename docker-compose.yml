@@ -275,6 +275,34 @@ services:
         condition: service_healthy
     networks: [kungfu-net]
 
+  # Cleanup worker for rooms abandoned by an abnormal disconnect (see
+  # services/reaper/main.py's own module docstring) -- scans rooms:active
+  # every REAPER_INTERVAL_S for a heartbeat older than REAPER_TTL_S, frees
+  # the owning Game Server's claimed capacity, and publishes an
+  # unattended-closure event to the same game_ended topic event_consumer
+  # already consumes.
+  reaper:
+    build:
+      context: .
+      dockerfile: services/reaper/Dockerfile
+    container_name: kfc-reaper
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:${KAFKA_PORT}
+      GAME_ENDED_TOPIC: ${GAME_ENDED_TOPIC}
+      REAPER_PORT: ${REAPER_PORT}
+      REAPER_INTERVAL_S: ${REAPER_INTERVAL_S}
+      REAPER_TTL_S: ${REAPER_TTL_S}
+    ports:
+      - "${REAPER_PORT}:${REAPER_PORT}"
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks: [kungfu-net]
+
 networks:
   kungfu-net:
     driver: bridge

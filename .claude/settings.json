@@ -9,7 +9,13 @@
       "Bash(nohup python -m server.spectator.gateway --port 8100 --redis-host localhost --redis-port 6380 --delay 3.0)",
       "Bash(echo \"gateway pid: $!\")",
       "Bash(python \"C:\\\\Users\\\\User\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c---------Kungfu-chess\\\\e0c411e6-afc0-4070-9ec2-dcd0d41a762f\\\\scratchpad\\\\spectator_smoke_test.py\")",
-      "Bash(kill 1179 1189)"
+      "Bash(kill 1179 1189)",
+      "Bash(python -m py_compile services/game_server/main.py)",
+      "Bash(python -m py_compile services/reaper/main.py services/reaper/__init__.py)",
+      "Bash(curl -s http://localhost:8040/health)",
+      "Bash(python \"C:\\\\Users\\\\User\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c---------Kungfu-chess\\\\e0c411e6-afc0-4070-9ec2-dcd0d41a762f\\\\scratchpad\\\\reaper_smoke_test.py\")",
+      "Bash(python \"C:\\\\Users\\\\User\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c---------Kungfu-chess\\\\e0c411e6-afc0-4070-9ec2-dcd0d41a762f\\\\scratchpad\\\\reaper_full_test.py\")",
+      "Bash(grep -v \"KeyError\\\\|Traceback\\\\|File \\\\\"\\\\|asyncio\\\\|^ \\\\|^$\")"
     ]
   }
 }
