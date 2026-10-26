@@ -27,3 +27,5 @@ build/
 # IDE
 .vscode/
 .idea/
+.env
+.claude/
